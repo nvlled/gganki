@@ -5,171 +5,6 @@ using Love;
 
 namespace gganki_love;
 
-
-class ScriptLoader
-{
-	FileSystemWatcher? watcher;
-	public bool enabled;
-	View? script;
-
-	string loadError = "";
-	string updateError = "";
-	string drawError = "";
-
-	Color bgColor = new Color(20, 20, 20, 220);
-	SharedState state;
-	string filename = "csscript.cs";
-
-	float lastLoad = 0;
-
-	public ScriptLoader(SharedState state)
-	{
-		this.state = state;
-	}
-
-	public void Reload()
-	{
-		try
-		{
-			var newScript = CSScriptLib.CSScript.RoslynEvaluator.LoadFile<View>(filename, state);
-			newScript.Load();
-			lastLoad = Love.Timer.GetTime();
-			loadError = "";
-
-			if (script != null)
-			{
-				script.Unload();
-			}
-
-			script = newScript;
-		}
-		catch (Exception err)
-		{
-			loadError = err.Message;
-			Console.WriteLine(err.Message);
-		}
-	}
-
-	public void Load()
-	{
-		if (watcher != null)
-		{
-			enabled = !enabled;
-			return;
-		}
-
-		var title = Window.GetTitle();
-		Window.SetTitle("loading script");
-		script = CSScriptLib.CSScript.RoslynEvaluator.LoadFile<View>(filename, state);
-		script.Load();
-		lastLoad = Love.Timer.GetTime();
-		Window.SetTitle(title);
-		enabled = true;
-
-		watcher = new FileSystemWatcher(".");
-
-		watcher.NotifyFilter = NotifyFilters.LastWrite;
-
-		watcher.Changed += (sender, e) =>
-		{
-			if (e.Name == filename && e.ChangeType == WatcherChangeTypes.Changed)
-			{
-				if (Love.Timer.GetTime() - lastLoad < 0.3)
-				{
-					return;
-				}
-
-				Console.WriteLine("changed: " + e.Name);
-				try
-				{
-					var newScript = CSScriptLib.CSScript.RoslynEvaluator.LoadFile<View>(filename, state);
-					newScript.Load();
-					lastLoad = Love.Timer.GetTime();
-					loadError = "";
-
-					if (script != null)
-					{
-						script.Unload();
-					}
-
-					script = newScript;
-				}
-				catch (Exception err)
-				{
-					loadError = err.Message;
-					Console.WriteLine(err.Message);
-				}
-			}
-		};
-
-		watcher.Error += (sender, e) =>
-		{
-			Console.WriteLine("error: " + e.ToString());
-		};
-
-		watcher.Filter = "csscript.cs";
-		watcher.IncludeSubdirectories = true;
-		watcher.EnableRaisingEvents = true;
-
-	}
-
-	public void Update()
-	{
-		if (!enabled)
-		{
-			return;
-		}
-
-		try
-		{
-			script?.Update();
-			updateError = "";
-		}
-		catch (Exception e)
-		{
-			updateError = e.Message;
-			Console.WriteLine("script update error: {0}", e.Message);
-		}
-	}
-	public void Draw()
-	{
-		if (!enabled)
-		{
-			return;
-		}
-
-		//Graphics.SetColor(bgColor);
-		//Graphics.Rectangle(DrawMode.Fill, 0, 0, Graphics.GetWidth(), Graphics.GetHeight());
-		Graphics.SetColor(Color.White);
-		Graphics.Print("script running");
-
-		var pos = new Vector2(50, 50);
-
-		if (!string.IsNullOrEmpty(loadError))
-		{
-			Graphics.Print("load error: " + loadError, pos.X, pos.Y);
-		}
-		else if (!string.IsNullOrEmpty(updateError))
-		{
-			Graphics.Print("update error: " + updateError, pos.X, pos.Y);
-		}
-		else
-		{
-			try
-			{
-				script?.Draw();
-				drawError = "";
-			}
-			catch (Exception e)
-			{
-				Graphics.Print("draw error: " + e.Message, pos.X, pos.Y);
-				Console.WriteLine("script update error: {0}", e.Message);
-			}
-		}
-	}
-}
-
-
 public class Program : Scene
 {
 	SharedState state;
@@ -192,7 +27,8 @@ public class Program : Scene
 
 	public Program()
 	{
-		state = new SharedState();
+		state = SharedState.instance;
+		state.fontAsian = Graphics.NewFont("assets/togoshi.ttf", Config.fontSize);
 		scriptLoader = new ScriptLoader(state);
 		Keyboard.SetKeyRepeat(true);
 	}
@@ -265,7 +101,7 @@ public class Program : Scene
 		Graphics.SetFont(state.fontAsian);
 
 		state.atlasImage = new AtlasImage(Graphics.NewImage("assets/atlas.png"));
-		state.player = new Entity(state.atlasImage, TileID.player, "hello");
+		state.player = new Entity(state.atlasImage, TileID.player);
 
 		state.lastDeckName = RestoreSavedState().lastDeckName;
 
@@ -330,6 +166,20 @@ public class Program : Scene
 	{
 		base.KeyReleased(key, scancode);
 		KeyHandler.DispatchKeyRelease(key, scancode);
+	}
+	public override void JoystickAdded(Joystick joystick)
+	{
+		if (joystick.IsGamepad())
+		{
+			Gamepad.Add(joystick);
+		}
+	}
+	public override void JoystickRemoved(Joystick joystick)
+	{
+		if (joystick.IsGamepad())
+		{
+			Gamepad.Remove(joystick);
+		}
 	}
 
 	public override void KeyPressed(KeyConstant key, Scancode scancode, bool isRepeat)

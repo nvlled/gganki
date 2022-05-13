@@ -4,6 +4,7 @@ namespace gganki_love;
 public class TileID
 {
 	public const int player = 3869;
+	static Random rand = new Random();
 
 	public static int[] monsters = new int[]{
 		3976, 4047, 3982, 3981, 3913, 3921, 3825, 4018, 4016, 3949, 4094, 4222, 4282, 4278,
@@ -12,6 +13,11 @@ public class TileID
 		4075, 4072, 4006, 4070, 4198, 4201, 3829, 3775, 3903, 3966, 3965, 3963, 4026, 3957,
 		3956, 4095, 4341, 4337, 4401, 4400
 	};
+
+	public static int RandomMonsterID()
+	{
+		return monsters[rand.Next(monsters.Length)];
+	}
 
 	public static HashSet<int> mirroredIDs = new HashSet<int>
 	{
