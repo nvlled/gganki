@@ -3,62 +3,82 @@ using Love;
 using System;
 using gganki_love;
 using System.Collections.Generic;
-
-enum WeaponState
-{
-	OnHand,
-	Attacking,
-	Returning
-}
-
+using System.Linq;
+using System.Diagnostics;
 
 public class Script : View
 {
-	List<Monster> monsters = new List<Monster> { };
+	//List<Monster> monsters = new List<Monster> { };
 	List<View> subScripts = new List<View> { };
 
 	System.Random rand = new System.Random();
 	public SharedState state;
 
-	WeaponEntity sword;
+	//WeaponEntity sword;
 
-	GAxis axisLeft = new GAxis(GAxisSide.Left, 50) { pos = new Vector2(100, Graphics.GetHeight() - 100) };
-	GAxis axisRight = new GAxis(GAxisSide.Right, 50) { pos = new Vector2(Graphics.GetWidth() - 100, Graphics.GetHeight() - 100) };
+	//GAxis axisLeft = new GAxis(GAxisSide.Left, 50) { pos = new Vector2(100, Graphics.GetHeight() - 100) };
+	//GAxis axisRight = new GAxis(GAxisSide.Right, 50) { pos = new Vector2(Graphics.GetWidth() - 100, Graphics.GetHeight() - 100) };
 
-	Plotter plotter;
+	//Plotter plotter;
+
+	Player testPlayer;
+	Camera cam;
+	World world;
+	MonsterGroup monsters;
+
+	Source testAudio;
 
 
 	public Script(SharedState state)
 	{
 		this.state = state;
 		subScripts = new List<View> { };
+
+		testPlayer = new Player();
+		cam = new Camera();
+		world = new World(testPlayer);
+		monsters = new MonsterGroup();
 	}
+
 	public void Load()
 	{
-		state.player.pos = Vector2.Zero;
-		//state.player.debug = false;
+		testAudio = Audio.NewSource("output.ogg", SourceType.Stream);
 
-		var katana = Entity.Create(3059);
-		sword = new WeaponEntity(katana, new Vector2(1, 0), new Vector2(0, 1));
-		sword.entity.pos = state.center;
-		sword.entity.debug = false;
-		sword.AttachTo(state.player, new Vector2(-50, 0));
+		//state.player.pos = state.center;
+		testPlayer.entity.pos = state.center;
 
 
-		for (var i = 0; i < 2; i++)
+		var numText = 15;
+		var defaultText = "化物語";
+		var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
+		var cards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
+		cards.Sort((a, b) => Random.Shared.Next(-1, 2));
+		cards = cards.Take(numText).ToList();
+
+		AnkiAudioPlayer.LoadCardAudios(cards);
+
+		//monsters = MonsterGroup.CreateFromTexts(cards.Select(c => c?.fields?["VocabKanji"]?.value ?? defaultText));
+		monsters = MonsterGroup.CreateFromCards(cards);
+		foreach (var m in monsters.Iterate())
 		{
-			var mon = new Monster(TileID.RandomMonsterID(), "化物語", state.fontAsian);
+			m.target = testPlayer.entity;
+		}
+
+		/*
+		for (var i = 0; i < 20; i++)
+		{
+			var text = cards?[i]?.fields?["VocabKanji"]?.value ?? defaultText;
+			var mon = new Monster(TileID.RandomMonsterID(), text, state.fontAsian);
 			mon.pos = new Vector2(
 				state.rand.Next(-300, Graphics.GetWidth() + 300),
 				 -20
 			);
-			mon.target = state.player;
+			mon.target = testPlayer.entity;
 			monsters.Add(mon);
 		}
+		*/
 
 
-		plotter = new Plotter(sword.entity, state);
-		plotter.enabled = false;
 
 		GamepadHandler.OnAxis += OnGamepadAxis;
 		GamepadHandler.OnPress += OnGamepadPress;
@@ -77,75 +97,77 @@ public class Script : View
 		GamepadHandler.OnAxis -= OnGamepadAxis;
 		GamepadHandler.OnPress -= OnGamepadPress;
 
-		foreach (var m in monsters) m.Dispose();
+		monsters.Dispose();
 	}
 
-	float angle = 0.1f;
 	public void Update()
 	{
 		UpdateSubScripts();
+		GAxis.left.Update();
+		GAxis.right.Update();
 
-		//sword.enabled = axisRight.activeDir.Length() > 0;
+		testPlayer.Update();
+
+		cam.Update();
+		cam.CenterAt(testPlayer.pos);
+
+		monsters.Update();
 
 		if (Gamepad.IsPressed(GamepadButton.A))
 		{
-			sword.DoAction();
+			testPlayer.DoAction1();
+		}
+		else if (Gamepad.IsPressed(GamepadButton.B))
+		{
+			testPlayer.DoAction2();
 		}
 
-		foreach (var m in monsters)
+		/*
+		foreach (var m in monsters.GetMonstersAt(testPlayer.rect))
 		{
-			m.Update();
+			if (Vector2.Distance(m.pos, testPlayer.pos) < testPlayer.rect.Width)
+			{
+				m.Hit(testPlayer.pos);
+			}
+		}
+		*/
 
-			//var hit = m.rect.Contains(sword.GetEndPos()) || m.rect.Contains(sword.entity.pos);
+		var sword = testPlayer.sword;
+		foreach (var m in monsters.GetMonstersAt(sword.GetEndPos()))
+		{
 			var hit = sword.HasHit(m);
 			if (hit && sword.enabled)
 			{
-				m.Hit();
+				m.Hit(sword.pos);
+
+				var filename = m?.card?.fields?["VocabAudio"].value;
+				AnkiAudioPlayer.Play(filename);
 			}
 		}
+		/*
+		*/
 
-		axisLeft.Update();
-		axisRight.Update();
-		plotter.Update();
-
-		sword.Update();
-		sword.PointAt(axisRight.movingDir);
-		axisRight.buildMomentum = Gamepad.IsDown(GamepadButton.LeftShoulder);
-
-		state.player.pos += state.player.speed * axisLeft.activeDir;
+		GAxis.right.buildMomentum = Gamepad.IsDown(GamepadButton.LeftShoulder);
 	}
 
 	public void Draw()
 	{
 		DrawSubScripts();
 
-		foreach (var m in monsters) m.Draw();
+		cam.StartDraw();
+		world.Draw();
+		testPlayer.Draw();
 
-		state.atlasImage?.StartDraw();
-		sword.Draw();
-		state.atlasImage?.EndDraw();
+		monsters.Draw();
 
-		plotter.Draw();
-		axisLeft.Draw();
-		axisRight.Draw();
+		cam.EndDraw();
 
-		//var p = new Vector2(sword.entity.rect.Right, sword.entity.rect.Top);
-		//Graphics.SetColor(Color.Yellow);
-		//Graphics.Circle(DrawMode.Fill, sword.GetHandlePos(), 10);
-		//Graphics.SetColor(Color.Orange);
-		//Graphics.Circle(DrawMode.Fill, sword.GetNewCenterPos(sword.GetHandlePos()), 10);
 
-		//var r = sword.GetRotatedRay();
-		//var rect = new RectangleF(50, 50, 150, 150);
-		//var p = Vector2.Zero;
-		//r.Intersects(rect, out p);
-		//var tipDistance = (p - sword.GetEndPos()).Length();
-		//var hit = rect.Contains(sword.GetEndPos()) || rect.Contains(sword.entity.pos);
-		//Graphics.Rectangle(hit ? DrawMode.Fill : DrawMode.Line, rect);
+		GAxis.left.Draw();
+		GAxis.right.Draw();
 
-		//Graphics.SetColor(Color.Green);
-		//Graphics.Circle(DrawMode.Fill, p, 20);
 	}
+
 	public void UpdateSubScripts()
 	{
 		foreach (var s in subScripts) s.Update();
@@ -158,671 +180,10 @@ public class Script : View
 	public Vector2 vec(float x, float y) { return new Vector2(x, y); }
 
 
-	public class WeaponEntity
-	{
-		public enum State { OnHand, Throwing, Returning }
-		class ThrowingData
-		{
-			public const float maxSteps = 25;
-			public const float haltDelay = 2;
+}
 
-			public float steps = 0;
-
-			public float haltElapsed = 0;
-		}
-		class ReturningData
-		{
-			public const float maxAccel = 80;
-			public const float maxDelay = 0.5f;
-			public float accel = 0;
-			public float delay = 0;
-
-		}
-
-		public Entity entity;
-
-		public Entity holder;
-		public Vector2 holdOffset;
-
-		Vector2 handlePoint;
-		Vector2 endPoint;
-		Vector2 tileDir;
-
-		float shiftAngle;
-		public bool enabled = true;
-
-		Vector2 lastEndPos = new Vector2();
-		Vector2 velocity = new Vector2();
-
-
-		State logicState = State.OnHand;
-		ThrowingData throwing = new ThrowingData();
-		ReturningData returning = new ReturningData();
-
-		public WeaponEntity(Entity entity, Vector2 handlePoint, Vector2 endPoint)
-		{
-			this.entity = entity;
-			this.handlePoint = handlePoint;
-			this.endPoint = endPoint;
-			this.tileDir = Vector2.Normalize(endPoint - handlePoint);
-
-			var p = Polar.FromVector(this.tileDir);
-			if (!float.IsNaN(p.angle))
-			{
-				shiftAngle = p.angle - MathF.PI / 2;
-			}
-			else
-			{
-				shiftAngle = MathF.PI / 2;
-			}
-
-			lastEndPos = GetEndPos();
-		}
-		public Vector2 GetRotatedDir()
-		{
-			var p = Polar.FromVector(this.tileDir);
-			p.angle += entity.radianAngle;
-			return Polar.ToVector(p);
-		}
-
-		public Vector2 GetHandlePos()
-		{
-			return entity.pos + GetRotatedDir() * new Vector2(entity.rect.Width / 2, entity.rect.Height / 2);
-		}
-		public Vector2 GetEndPos()
-		{
-			return entity.pos + -GetRotatedDir() * new Vector2(entity.rect.Width / 2, entity.rect.Height / 2) * 1.3f;
-		}
-
-		public Vector2 GetNewCenterPos(Vector2 handlePos)
-		{
-			return handlePos + -GetRotatedDir() * new Vector2(entity.rect.Width / 2, entity.rect.Height / 2);
-		}
-
-		public void SetHandlePosition(Vector2 newHandlePos)
-		{
-			entity.pos = GetNewCenterPos(newHandlePos);
-		}
-
-		public void AttachTo(Entity holder, Vector2 offset)
-		{
-			this.holder = holder;
-			this.holdOffset = offset;
-		}
-
-		public void RotateAt(Vector2 dir)
-		{
-			entity.dir = dir;
-			entity.radianAngle = shiftAngle + Polar.FromVector(dir).angle;
-		}
-
-		public void PointAt(Vector2 dir)
-		{
-			if (logicState == State.OnHand)
-			{
-				var oldPos = GetHandlePos();
-				RotateAt(dir);
-				SetHandlePosition(oldPos);
-			}
-			else if (logicState == State.Throwing)
-			{
-				//RotateAt(dir);
-			}
-		}
-		public void DoAction()
-		{
-			switch (logicState)
-			{
-				case State.OnHand: Throw(); break;
-				case State.Throwing: HaltThrow(); break;
-			}
-		}
-
-		public void HaltThrow()
-		{
-			if (throwing.steps < ThrowingData.maxSteps)
-			{
-				throwing.steps = ThrowingData.maxSteps;
-			}
-			else
-			{
-				Return();
-			}
-		}
-
-		public void Throw()
-		{
-			if (logicState == State.OnHand)
-			{
-				logicState = State.Throwing;
-				throwing.steps = 0;
-				throwing.haltElapsed = 0;
-			}
-		}
-		public void Return()
-		{
-			logicState = State.Returning;
-			returning.accel = 1;
-			returning.delay = 0;
-		}
-
-		public Ray2D GetRotatedRay()
-		{
-			var start = GetHandlePos();
-			return new Ray2D(start, GetEndPos() - start);
-		}
-
-
-		public void Draw()
-		{
-			if (!enabled)
-			{
-				return;
-			}
-
-			entity.Draw();
-
-
-			//var start = GetHandlePos();
-			//var end = start + GetRotatedDir() * this.tileDir.Length();
-			//var end = GetEndPos();
-			//var r = GetRotatedRay();
-			//Graphics.SetColor(Color.Red);
-			//Graphics.Line(r.Original, r.Original + r.Direction);
-		}
-
-		public bool UpdateThrowing()
-		{
-			if (throwing.steps < ThrowingData.maxSteps)
-			{
-				entity.pos += entity.dir * throwing.steps * 10;
-				throwing.steps++;
-			}
-			if (throwing.steps >= ThrowingData.maxSteps)
-			{
-				throwing.haltElapsed += Love.Timer.GetDelta();
-				entity.radianAngle += 30 * MathF.PI / 180;
-				if (entity.radianAngle > MathF.PI)
-				{
-					entity.radianAngle = 0;
-				}
-			}
-
-			if (throwing.haltElapsed > ThrowingData.haltDelay)
-			{
-				Return();
-			}
-
-			return true;
-		}
-
-		public bool UpdateReturning()
-		{
-			var v = holder.pos - entity.pos;
-			if (returning.delay >= ReturningData.maxDelay)
-			{
-				logicState = State.OnHand;
-				return true;
-			}
-			if (v.Length() < 50)
-			{
-				entity.radianAngle += 50 * MathF.PI / 180;
-				if (entity.radianAngle > MathF.PI)
-				{
-					entity.radianAngle = 0;
-				}
-				returning.delay += Love.Timer.GetDelta();
-				return true;
-			}
-
-			var dir = Vector2.Normalize(v);
-			RotateAt(-dir);
-			entity.pos += dir * returning.accel;
-
-			if (returning.accel < ReturningData.maxAccel)
-			{
-				returning.accel += 10;
-			}
-
-			return true;
-		}
-
-		public bool UpdateOnHand()
-		{
-			SetHandlePosition(holder.pos + holdOffset);
-			return true;
-		}
-
-
-		public void Update()
-		{
-			_ = logicState switch
-			{
-				State.OnHand => UpdateOnHand(),
-				State.Throwing => UpdateThrowing(),
-				State.Returning => UpdateReturning(),
-				_ => false,
-			};
-
-			entity.Update();
-			var endPos = GetEndPos();
-			velocity += (endPos - lastEndPos);
-			velocity *= 0.5f;
-			lastEndPos = endPos;
-		}
-
-		public bool HasHit(Monster m)
-		{
-			if (!m.rect.Contains(GetEndPos()) && !m.rect.Contains(entity.pos))
-			{
-				return false;
-			}
-			return velocity.Length() > 20;
-		}
-	}
-
-	public enum GAxisSide
-	{
-		Left,
-		Right
-	}
-	public class GAxis
-	{
-		GAxisSide side;
-		public Vector2 activeDir;
-		public Vector2 passiveDir;
-		public Vector2 movingDir;
-
-		float momentum;
-		public bool buildMomentum = false;
-
-		public Vector2 pos;
-		public float radius;
-
-		float pointing = 0;
-
-		public GAxis(GAxisSide side, float radius = 50)
-		{
-			this.radius = radius;
-			this.side = side;
-			this.pos = Vector2.Zero;
-			this.activeDir = Vector2.Zero;
-			this.passiveDir = Vector2.UnitY;
-			this.movingDir = Vector2.UnitY;
-		}
-
-		public void Update()
-		{
-			Joystick? gamepad = null;
-			foreach (var js in Joystick.GetJoysticks())
-			{
-				if (js.IsGamepad() && js.IsConnected())
-				{
-					gamepad = js;
-				}
-			}
-			if (gamepad is null)
-			{
-				return;
-			}
-
-			var (xType, yType) = side == GAxisSide.Left
-				? (GamepadAxis.LeftX, GamepadAxis.LeftY)
-				: (GamepadAxis.RightX, GamepadAxis.RightY);
-
-			var axisX = gamepad.GetGamepadAxis(xType);
-			var axisY = gamepad.GetGamepadAxis(yType);
-
-			activeDir = new Vector2(axisX, 0) + Vector2.UnitY * activeDir;
-			activeDir = new Vector2(0, axisY) + Vector2.UnitX * activeDir;
-
-
-			var prevPassiveDir = passiveDir;
-			if (axisX != 0 || axisY != 0)
-			{
-				passiveDir = new Vector2(axisX, 0) + Vector2.UnitY * passiveDir;
-				passiveDir = new Vector2(0, axisY) + Vector2.UnitX * passiveDir;
-			}
-			passiveDir.Normalize();
-
-			var dir = Polar.GetAngle(passiveDir) - Polar.GetAngle(prevPassiveDir);
-			if (MathF.Abs(dir) > MathF.PI / 2 && MathF.Abs(dir) < MathF.PI)
-			{
-				dir = 0;
-			}
-			else if (activeDir.Length() > 0 && MathF.Abs(dir) > MathF.PI)
-			{
-				dir += -MathF.Sign(dir) * MathF.PI * 2;
-			}
-
-			if (activeDir.Length() > 0 && MathF.Abs(dir) < MathF.PI / 180)
-			{
-				pointing += Love.Timer.GetDelta();
-			}
-			else
-			{
-				pointing = 0;
-			}
-
-			momentum += dir;
-			momentum *= 0.99f;
-
-			if (pointing > 0.5f)
-			{
-				momentum = 0;
-			}
-
-
-			movingDir = movingDir + activeDir * 0.5f;
-			movingDir.Normalize();
-
-			if (buildMomentum)
-			{
-				movingDir = Polar.Rotate(momentum / 5, movingDir);
-			}
-
-		}
-
-		public void Draw()
-		{
-			//Graphics.SetColor(Color.White);
-			//Graphics.Circle(DrawMode.Line, pos, radius);
-			Graphics.SetColor(Color.DarkRed);
-			Graphics.Circle(DrawMode.Fill, pos, radius);
-
-
-			Graphics.Push();
-			Graphics.SetLineWidth(12);
-			Graphics.SetColor(Color.Green);
-			Graphics.Line(pos, pos + activeDir * radius);
-
-			Graphics.SetLineWidth(4);
-			Graphics.SetColor(Color.Blue);
-			Graphics.Line(pos, pos + passiveDir * radius);
-
-			Graphics.SetLineWidth(2);
-			Graphics.SetColor(Color.Yellow);
-			Graphics.Line(pos, pos + movingDir * radius);
-
-			Graphics.Pop();
-		}
-	}
-	public class EntityUtil
-	{
-		public static Vector2 RotateByPoint(Vector2 point, Vector2 pivot, float angle)
-		{
-			var p = Vector2.RotateRadian(point - pivot, angle);
-			return pivot + p;
-		}
-		public static void RotateEntityByPoint(Entity entity, Vector2 coord, float angle)
-		{
-			var oldPos = entity.pos;
-			var pivot = GetAbsolutePosition(entity, coord);
-			var pos = RotateByPoint(entity.pos, pivot, angle);
-			entity.pos = pos;
-			entity.radianAngle = angle;
-			var pivot2 = GetAbsolutePosition(entity, coord);
-		}
-
-		public static Vector2 GetAbsolutePosition(Entity entity, Vector2 coord)
-		{
-			var r = entity.rect;
-			return new Vector2(
-				r.X + r.Width * coord.X,
-				r.Y + r.Height * coord.Y
-			);
-		}
-	}
-
-	public class Plotter
-	{
-		Entity entity;
-		Vector2 point1;
-		Vector2 point2;
-		Vector2 point3;
-		public bool enabled = true;
-
-		SharedState state;
-		float angle = 0;
-
-		public Plotter(Entity entity, SharedState state)
-		{
-			this.entity = entity;
-			this.state = state;
-
-			//this.entity.radianAngle = 0.50f;
-
-			var p = state.player;
-			p.pos = state.center;
-
-			var topRight = EntityUtil.GetAbsolutePosition(state.player, new Vector2(0, 1));
-			point3 = EntityUtil.RotateByPoint(state.center, topRight, -0.30f);
-		}
-
-		public void Update()
-		{
-			if (!enabled)
-			{
-				return;
-			}
-
-			var p = state.player;
-			var topRight = EntityUtil.GetAbsolutePosition(state.player, new Vector2(1.0f, 0.0f));
-			point3 = EntityUtil.RotateByPoint(state.center, state.center + new Vector2(p.rect.Width / 2, -p.rect.Height / 2), angle);
-			state.player.pos = point3;
-			state.player.radianAngle = angle;
-			//angle += 0.01005f;
-
-
-
-			if (Mouse.IsDown(0) && entity.rect.Contains(Mouse.GetPosition()))
-			{
-				point1 = Mouse.GetPosition();
-				point2 = EntityUtil.RotateByPoint(point1, entity.rect.Center, entity.radianAngle);
-
-			}
-		}
-
-		public void Draw()
-		{
-			if (!enabled)
-			{
-				return;
-			}
-
-			var center = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
-			Graphics.SetColor(Color.White);
-			Graphics.Circle(DrawMode.Fill, center, 10);
-
-			Graphics.SetColor(Color.Red);
-			Graphics.Circle(DrawMode.Fill, point1, 10);
-
-			Graphics.SetColor(Color.Blue);
-			Graphics.Circle(DrawMode.Fill, point2, 7);
-
-			Graphics.SetColor(Color.Orange);
-			Graphics.Circle(DrawMode.Fill, point3, 12);
-
-			Graphics.SetColor(Color.White);
-			Graphics.Rectangle(DrawMode.Line, entity.rect);
-
-			var r = entity.rect;
-			Graphics.Push();
-			Graphics.SetColor(Color.Yellow);
-			Graphics.Translate(entity.rect.Center);
-			Graphics.Rotate(entity.radianAngle);
-			Graphics.Line(
-				new Vector2(r.Left, r.Top) - r.Center,
-				new Vector2(r.Right, r.Top) - r.Center,
-				new Vector2(r.Right, r.Bottom) - r.Center,
-				new Vector2(r.Left, r.Bottom) - r.Center,
-				new Vector2(r.Left, r.Top) - r.Center
-			);
-			Graphics.Pop();
-		}
-	}
-
-	// TODO:
-	// entity.FlipViewX()
-	// entity.FlipViewY()
-	// entity.rect rename to drawRect
-	// entity.drawRotation
-	// entity.hitbox
-	// entity.moveDir
-	// entity.pos
-	// entity.vel
-	// entity.accel
-
-
-	public class Monster
-	{
-		enum State { Exploring, Fleeing, Approaching, Attacked }
-		private struct Attacked
-		{
-			public float elapsed;
-			public float numBlinks;
-			public Vector2 dir;
-		}
-
-
-		Entity entity;
-		public Entity target;
-		string text;
-
-		Text textObject;
-
-		State logicState = State.Approaching;
-
-		Attacked attackedData;
-
-
-		public Vector2 pos
-		{
-			get { return entity.pos; }
-			set { entity.pos = value; }
-		}
-		public RectangleF rect
-		{
-			get { return entity.rect; }
-		}
-
-		public Monster(int tileID, string text, Font? font = null)
-		{
-			entity = Entity.Create(tileID);
-			this.text = text;
-
-			font ??= Graphics.GetFont();
-			this.textObject = Graphics.NewText(font, text);
-		}
-
-		public void UpdateAttacked()
-		{
-			if (logicState == State.Attacked)
-			{
-				if (attackedData.numBlinks > 2)
-				{
-					logicState = State.Approaching;
-					entity.color = Color.White;
-				}
-				else if (attackedData.elapsed == 0 || attackedData.elapsed > .30f)
-				{
-					var entityColor = (attackedData.numBlinks * 10) % 2 == 0 ? Color.Red : Color.White;
-					attackedData.elapsed = 0;
-					attackedData.numBlinks += 1f;
-					entity.color = entityColor;
-				}
-				pos += -attackedData.dir * 1.5f;
-				attackedData.elapsed += Love.Timer.GetDelta();
-			}
-
-		}
-
-		public void UpdateApproach()
-		{
-			if (target != null)
-			{
-				var dir = target.pos - pos;
-				if (dir.Length() > 150)
-				{
-					entity.pos += Vector2.Normalize(dir) * entity.speed;
-				}
-			}
-
-		}
-
-		public void Update()
-		{
-			entity.Update();
-			if (logicState == State.Approaching)
-			{
-				UpdateApproach();
-			}
-			else if (logicState == State.Attacked)
-				UpdateAttacked();
-		}
-		public void Draw()
-		{
-			entity.Draw();
-
-			Graphics.Push();
-
-			var t = textObject;
-			var w = t.GetWidth();
-			var h = t.GetHeight();
-			var x = entity.rect.Center.X - w / 2;
-			var y = entity.rect.Top - h / 2;
-			var r = new RectangleF(x, y, w, h);
-			Graphics.SetFont(SharedState.instance.fontAsian);
-			Graphics.SetColor(Color.Yellow);
-			//Graphics.Rectangle(DrawMode.Line, r);
-			Graphics.SetColor(entity.color);
-			//Graphics.Rectangle(DrawMode.Line, rect);
-			Graphics.Draw(textObject, x, y);
-			//Graphics.Print("くさ草", pos.X, pos.Y);
-			//Graphics.SetFont(null);
-			Graphics.Pop();
-
-
-		}
-
-		public void Hit()
-		{
-			if (logicState != State.Attacked)
-			{
-
-				logicState = State.Attacked;
-				attackedData.numBlinks = 0;
-				attackedData.elapsed = 0;
-				attackedData.dir = Vector2.Normalize(target.pos - pos);
-
-
-				// uhh, attacking by rotating the 
-				// joystick in full circle motions isn't as fun as I though
-				// it might even incur an injury if I do
-				// it for prolonged period of time
-				// just throwing the weapon seems more fun
-
-				// TODO: player dash movement
-				// TODO: camera view for zooming and panning
-				// weapon.setHandlePos(player.FromRelativePos(0.5, 0))
-				// TODO: implement other monster logic states
-
-				// TODO: z-order, sort by y
-				// TODO: vary monster run speed
-				// TODO: monsters should avoid overstepping each other
-
-				// TODO: add one more weapon (change with B button)
-			}
-		}
-
-		public void Dispose()
-		{
-			textObject.Clear();
-			textObject.Dispose();
-		}
-	}
-
-
+public class Wut
+{
 	public static void huh(params object[] thingies)
 	{
 		var i = 0;
@@ -833,3 +194,1232 @@ public class Script : View
 		}
 	}
 }
+
+public class WeaponEntity
+{
+	public enum State { OnHand, Throwing, Returning }
+	class ThrowingData
+	{
+		public const float maxSteps = 25;
+		public const float haltDelay = 2;
+
+		public float steps = 0;
+
+		public float haltElapsed = 0;
+	}
+	class ReturningData
+	{
+		public const float maxAccel = 80;
+		public const float maxDelay = 0.5f;
+		public float accel = 0;
+		public float delay = 0;
+
+	}
+
+	public Entity entity;
+
+	public Entity? holder;
+	public Vector2 holdOffset;
+
+	Vector2 handlePoint;
+	Vector2 endPoint;
+	Vector2 tileDir;
+
+	float shiftAngle;
+	public bool enabled = true;
+
+	Vector2 lastEndPos = new Vector2();
+	Vector2 velocity = new Vector2();
+
+	public Vector2 pos
+	{
+		get { return entity.pos; }
+		set { entity.pos = value; }
+	}
+	public Vector2 dir
+	{
+		get { return entity.dir; }
+		set { entity.dir = value; }
+	}
+
+
+	State logicState = State.OnHand;
+	ThrowingData throwing = new ThrowingData();
+	ReturningData returning = new ReturningData();
+
+	public WeaponEntity(Entity entity, Vector2 handlePoint, Vector2 endPoint)
+	{
+		this.entity = entity;
+		this.handlePoint = handlePoint;
+		this.endPoint = endPoint;
+		this.tileDir = Vector2.Normalize(endPoint - handlePoint);
+
+		var p = Polar.FromVector(this.tileDir);
+		if (!float.IsNaN(p.angle))
+		{
+			shiftAngle = p.angle - MathF.PI / 2;
+		}
+		else
+		{
+			shiftAngle = MathF.PI / 2;
+		}
+
+		lastEndPos = GetEndPos();
+	}
+	public Vector2 GetRotatedDir()
+	{
+		var p = Polar.FromVector(this.tileDir);
+		p.angle += entity.radianAngle;
+		return Polar.ToVector(p);
+	}
+
+	public Vector2 GetHandlePos()
+	{
+		return entity.pos + GetRotatedDir() * new Vector2(entity.rect.Width / 2, entity.rect.Height / 2);
+	}
+	public Vector2 GetEndPos()
+	{
+		return entity.pos + -GetRotatedDir() * new Vector2(entity.rect.Width / 2, entity.rect.Height / 2) * 1.3f;
+	}
+
+	public Vector2 GetNewCenterPos(Vector2 handlePos)
+	{
+		return handlePos + -GetRotatedDir() * new Vector2(entity.rect.Width / 2, entity.rect.Height / 2);
+	}
+
+	public void SetHandlePosition(Vector2 newHandlePos)
+	{
+		entity.pos = GetNewCenterPos(newHandlePos);
+	}
+
+	public void AttachTo(Entity holder, Vector2 offset)
+	{
+		this.holder = holder;
+		this.holdOffset = offset;
+	}
+
+	public void RotateAt(Vector2 dir)
+	{
+		entity.dir = dir;
+		entity.radianAngle = shiftAngle + Polar.FromVector(dir).angle;
+	}
+
+	public void PointAt(Vector2 dir)
+	{
+		if (logicState == State.OnHand)
+		{
+			var oldPos = GetHandlePos();
+			RotateAt(dir);
+			SetHandlePosition(oldPos);
+		}
+		else if (logicState == State.Throwing)
+		{
+			//RotateAt(dir);
+		}
+	}
+	public void DoAction()
+	{
+		switch (logicState)
+		{
+			case State.OnHand: Throw(); break;
+			case State.Throwing: HaltThrow(); break;
+		}
+	}
+
+	public void HaltThrow()
+	{
+		if (throwing.steps < ThrowingData.maxSteps)
+		{
+			throwing.steps = ThrowingData.maxSteps;
+		}
+		else if (throwing.haltElapsed > 0.2f)
+		{
+			Return();
+		}
+	}
+
+	public void Throw()
+	{
+		if (logicState == State.OnHand)
+		{
+			logicState = State.Throwing;
+			throwing.steps = 0;
+			throwing.haltElapsed = 0;
+		}
+	}
+	public void Return()
+	{
+		logicState = State.Returning;
+		returning.accel = 1;
+		returning.delay = 0;
+	}
+
+	public Ray2D GetRotatedRay()
+	{
+		var start = GetHandlePos();
+		return new Ray2D(start, GetEndPos() - start);
+	}
+
+
+	public void Draw()
+	{
+		if (!enabled)
+		{
+			return;
+		}
+
+		entity.Draw();
+
+
+		//var start = GetHandlePos();
+		//var end = start + GetRotatedDir() * this.tileDir.Length();
+		//var end = GetEndPos();
+		//var r = GetRotatedRay();
+		//Graphics.SetColor(Color.Red);
+		//Graphics.Line(r.Original, r.Original + r.Direction);
+	}
+
+	public bool UpdateThrowing()
+	{
+		if (throwing.steps < ThrowingData.maxSteps)
+		{
+			entity.pos += entity.dir * throwing.steps * 10;
+			throwing.steps++;
+		}
+		if (throwing.steps >= ThrowingData.maxSteps)
+		{
+			throwing.haltElapsed += Love.Timer.GetDelta();
+			entity.radianAngle += 30 * MathF.PI / 180;
+			if (entity.radianAngle > MathF.PI)
+			{
+				entity.radianAngle = 0;
+			}
+		}
+
+		if (throwing.haltElapsed > ThrowingData.haltDelay)
+		{
+			Return();
+		}
+
+		return true;
+	}
+
+	public bool UpdateReturning()
+	{
+		if (holder is null) { return false; }
+
+		var v = holder.pos - entity.pos;
+		if (returning.delay >= ReturningData.maxDelay)
+		{
+			logicState = State.OnHand;
+			return true;
+		}
+		if (v.Length() < 50)
+		{
+			entity.radianAngle += 50 * MathF.PI / 180;
+			if (entity.radianAngle > MathF.PI)
+			{
+				entity.radianAngle = 0;
+			}
+			returning.delay += Love.Timer.GetDelta();
+			return true;
+		}
+
+		var dir = Vector2.Normalize(v);
+		RotateAt(-dir);
+		entity.pos += dir * returning.accel;
+
+		if (returning.accel < ReturningData.maxAccel)
+		{
+			returning.accel += 10;
+		}
+
+		return true;
+	}
+
+	public bool UpdateOnHand()
+	{
+		if (holder is null) { return false; }
+
+		var offset = new Vector2(
+			holder.flipX * holdOffset.X * holder.rect.Width / 2,
+			holder.flipY * holdOffset.Y * holder.rect.Height / 2
+		);
+		SetHandlePosition(holder.pos + offset);
+		return true;
+	}
+
+
+	public void Update()
+	{
+		_ = logicState switch
+		{
+			State.OnHand => UpdateOnHand(),
+			State.Throwing => UpdateThrowing(),
+			State.Returning => UpdateReturning(),
+			_ => false,
+		};
+
+		entity.Update();
+		var endPos = GetEndPos();
+		velocity += (endPos - lastEndPos);
+		velocity *= 0.5f;
+		lastEndPos = endPos;
+	}
+
+	public bool HasHit(Monster m)
+	{
+		return m.rect.Contains(GetHandlePos()) || m.rect.Contains(GetEndPos()) || m.rect.Contains(entity.pos);
+		//if (!m.rect.Contains(GetEndPos()) && !m.rect.Contains(entity.pos))
+		//{
+		//	return false;
+		//}
+		////return velocity.Length() > 20;
+		//return true;
+	}
+
+
+	public static WeaponEntity RandomWeapon()
+	{
+
+		var i = Random.Shared.Next(0, TileID.weaponsTR.Length);
+		var id = TileID.weaponsTR[i];
+		var entity = Entity.Create(id);
+		return new WeaponEntity(entity, new Vector2(1, 0), new Vector2(0, 1));
+	}
+}
+
+public enum GAxisSide
+{
+	Left,
+	Right
+}
+public class GAxis
+{
+	public static GAxis left;
+	public static GAxis right;
+
+	static GAxis()
+	{
+		//left = new GAxis(GAxisSide.Left) { noDraw = true };
+		//right = new GAxis(GAxisSide.Right) { noDraw = true };
+		left = new GAxis(GAxisSide.Left, 50) { pos = new Vector2(100, Graphics.GetHeight() - 100) };
+		right = new GAxis(GAxisSide.Right, 50) { pos = new Vector2(Graphics.GetWidth() - 100, Graphics.GetHeight() - 100) };
+	}
+
+	GAxisSide side;
+	public Vector2 activeDir;
+	public Vector2 passiveDir;
+	public Vector2 movingDir;
+
+	float momentum;
+	public bool buildMomentum = false;
+	public bool noDraw = false;
+
+	public Vector2 pos;
+	public float radius;
+
+	float pointing = 0;
+
+	public GAxis(GAxisSide side, float radius = 50)
+	{
+		this.radius = radius;
+		this.side = side;
+		this.pos = Vector2.Zero;
+		this.activeDir = Vector2.Zero;
+		this.passiveDir = Vector2.UnitY;
+		this.movingDir = Vector2.UnitY;
+	}
+
+	public void Update()
+	{
+		Joystick? gamepad = null;
+		foreach (var js in Joystick.GetJoysticks())
+		{
+			if (js.IsGamepad() && js.IsConnected())
+			{
+				gamepad = js;
+			}
+		}
+		if (gamepad is null)
+		{
+			return;
+		}
+
+		var (xType, yType) = side == GAxisSide.Left
+			? (GamepadAxis.LeftX, GamepadAxis.LeftY)
+			: (GamepadAxis.RightX, GamepadAxis.RightY);
+
+		var axisX = gamepad.GetGamepadAxis(xType);
+		var axisY = gamepad.GetGamepadAxis(yType);
+
+		activeDir = new Vector2(axisX, 0) + Vector2.UnitY * activeDir;
+		activeDir = new Vector2(0, axisY) + Vector2.UnitX * activeDir;
+
+
+		var prevPassiveDir = passiveDir;
+		if (axisX != 0 || axisY != 0)
+		{
+			passiveDir = new Vector2(axisX, 0) + Vector2.UnitY * passiveDir;
+			passiveDir = new Vector2(0, axisY) + Vector2.UnitX * passiveDir;
+		}
+		passiveDir.Normalize();
+
+		var dir = Polar.GetAngle(passiveDir) - Polar.GetAngle(prevPassiveDir);
+		if (MathF.Abs(dir) > MathF.PI / 2 && MathF.Abs(dir) < MathF.PI)
+		{
+			dir = 0;
+		}
+		else if (activeDir.Length() > 0 && MathF.Abs(dir) > MathF.PI)
+		{
+			dir += -MathF.Sign(dir) * MathF.PI * 2;
+		}
+
+		if (activeDir.Length() > 0 && MathF.Abs(dir) < MathF.PI / 180)
+		{
+			pointing += Love.Timer.GetDelta();
+		}
+		else
+		{
+			pointing = 0;
+		}
+
+		momentum += dir;
+		momentum *= 0.99f;
+
+		if (pointing > 0.5f)
+		{
+			momentum = 0;
+		}
+
+
+		movingDir = movingDir + activeDir * 0.5f;
+		movingDir.Normalize();
+
+		if (buildMomentum)
+		{
+			movingDir = Polar.Rotate(momentum / 5, movingDir);
+		}
+
+	}
+
+	public void Draw()
+	{
+		if (noDraw)
+		{
+			return;
+		}
+
+		//Graphics.SetColor(Color.White);
+		//Graphics.Circle(DrawMode.Line, pos, radius);
+		Graphics.SetColor(Color.DarkRed);
+		Graphics.Circle(DrawMode.Fill, pos, radius);
+
+
+		Graphics.Push();
+		Graphics.SetLineWidth(12);
+		Graphics.SetColor(Color.Green);
+		Graphics.Line(pos, pos + activeDir * radius);
+
+		Graphics.SetLineWidth(4);
+		Graphics.SetColor(Color.Blue);
+		Graphics.Line(pos, pos + passiveDir * radius);
+
+		Graphics.SetLineWidth(2);
+		Graphics.SetColor(Color.Yellow);
+		Graphics.Line(pos, pos + movingDir * radius);
+
+		Graphics.Pop();
+	}
+}
+public class EntityUtil
+{
+	public static Vector2 RotateByPoint(Vector2 point, Vector2 pivot, float angle)
+	{
+		var p = Vector2.RotateRadian(point - pivot, angle);
+		return pivot + p;
+	}
+	public static void RotateEntityByPoint(Entity entity, Vector2 coord, float angle)
+	{
+		var oldPos = entity.pos;
+		var pivot = GetAbsolutePosition(entity, coord);
+		var pos = RotateByPoint(entity.pos, pivot, angle);
+		entity.pos = pos;
+		entity.radianAngle = angle;
+		var pivot2 = GetAbsolutePosition(entity, coord);
+	}
+
+	public static Vector2 GetAbsolutePosition(Entity entity, Vector2 coord)
+	{
+		var r = entity.rect;
+		return new Vector2(
+			r.X + r.Width * coord.X,
+			r.Y + r.Height * coord.Y
+		);
+	}
+}
+
+/*
+public class Plotter
+{
+	Entity entity;
+	Vector2 point1;
+	Vector2 point2;
+	Vector2 point3;
+	public bool enabled = true;
+
+	SharedState state;
+	float angle = 0;
+
+	public Plotter(Entity entity, SharedState state)
+	{
+		this.entity = entity;
+		this.state = state;
+
+		//this.entity.radianAngle = 0.50f;
+
+		var p = state.player;
+		p.pos = state.center;
+
+		var topRight = EntityUtil.GetAbsolutePosition(state.player, new Vector2(0, 1));
+		point3 = EntityUtil.RotateByPoint(state.center, topRight, -0.30f);
+	}
+
+	public void Update()
+	{
+		if (!enabled)
+		{
+			return;
+		}
+
+		var p = state.player;
+		var topRight = EntityUtil.GetAbsolutePosition(state.player, new Vector2(1.0f, 0.0f));
+		point3 = EntityUtil.RotateByPoint(state.center, state.center + new Vector2(p.rect.Width / 2, -p.rect.Height / 2), angle);
+		state.player.pos = point3;
+		state.player.radianAngle = angle;
+		//angle += 0.01005f;
+
+
+
+		if (Mouse.IsDown(0) && entity.rect.Contains(Mouse.GetPosition()))
+		{
+			point1 = Mouse.GetPosition();
+			point2 = EntityUtil.RotateByPoint(point1, entity.rect.Center, entity.radianAngle);
+
+		}
+	}
+
+	public void Draw()
+	{
+		if (!enabled)
+		{
+			return;
+		}
+
+		var center = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
+		Graphics.SetColor(Color.White);
+		Graphics.Circle(DrawMode.Fill, center, 10);
+
+		Graphics.SetColor(Color.Red);
+		Graphics.Circle(DrawMode.Fill, point1, 10);
+
+		Graphics.SetColor(Color.Blue);
+		Graphics.Circle(DrawMode.Fill, point2, 7);
+
+		Graphics.SetColor(Color.Orange);
+		Graphics.Circle(DrawMode.Fill, point3, 12);
+
+		Graphics.SetColor(Color.White);
+		Graphics.Rectangle(DrawMode.Line, entity.rect);
+
+		var r = entity.rect;
+		Graphics.Push();
+		Graphics.SetColor(Color.Yellow);
+		Graphics.Translate(entity.rect.Center);
+		Graphics.Rotate(entity.radianAngle);
+		Graphics.Line(
+			new Vector2(r.Left, r.Top) - r.Center,
+			new Vector2(r.Right, r.Top) - r.Center,
+			new Vector2(r.Right, r.Bottom) - r.Center,
+			new Vector2(r.Left, r.Bottom) - r.Center,
+			new Vector2(r.Left, r.Top) - r.Center
+		);
+		Graphics.Pop();
+	}
+}
+*/
+
+
+
+public class MonsterGroup
+{
+	HashSet<Monster> hostileMonsters = new HashSet<Monster>();
+
+	PartitionedList<Monster> monsters = new PartitionedList<Monster>(SharedState.instance.worldTileSize);
+
+	public MonsterGroup() { }
+
+	public static MonsterGroup CreateFromTexts(IEnumerable<string> texts)
+	{
+		var group = new MonsterGroup();
+		var font = SharedState.instance.fontAsian;
+		foreach (var text in texts)
+		{
+			var mon = new Monster(TileID.RandomMonsterID(), text, font);
+			mon.pos = new Vector2(
+				Random.Shared.Next(-100, Graphics.GetWidth() + 100),
+				Random.Shared.Next(-100, Graphics.GetWidth() + 100)
+			//50, 50
+			);
+			//mon.target = testPlayer.entity;
+			group.monsters.Add(mon);
+			mon.group = group;
+		}
+		return group;
+	}
+	public static MonsterGroup CreateFromCards(List<CardInfo> cards)
+	{
+		var group = new MonsterGroup();
+		var font = SharedState.instance.fontAsian;
+		foreach (var card in cards)
+		{
+			var text = card.fields?["VocabKanji"]?.value ?? "";
+			var mon = new Monster(TileID.RandomMonsterID(), text, font);
+			mon.pos = new Vector2(
+				Random.Shared.Next(-100, Graphics.GetWidth() + 100),
+				Random.Shared.Next(-100, Graphics.GetWidth() + 100)
+			);
+			group.monsters.Add(mon);
+			mon.group = group;
+			mon.card = card;
+		}
+		return group;
+	}
+
+	public IEnumerable<Monster> Iterate()
+	{
+		return monsters.Iterate();
+	}
+
+	public IEnumerable<Monster> GetMonstersAt(RectangleF r)
+	{
+		return monsters.GetItemsAt(
+			new Vector2(r.Left, r.Top),
+			new Vector2(r.Left, r.Bottom),
+			new Vector2(r.Right, r.Top),
+			new Vector2(r.Right, r.Bottom)
+		);
+	}
+
+	public IEnumerable<Monster> GetMonstersAt(Vector2 pos)
+	{
+		return monsters.GetItemsAt(pos);
+	}
+
+	public void Update()
+	{
+		foreach (var m in monsters.Iterate())
+		{
+			var p = m.pos;
+			m.Update();
+			monsters.Move(m);
+		}
+	}
+
+	public void Draw()
+	{
+		foreach (var m in monsters.Iterate())
+		{
+			m.Draw();
+		}
+	}
+
+	public void Dispose()
+	{
+		//foreach (var m in monsters.Iterate()) m.Dispose();
+		monsters = new PartitionedList<Monster>(monsters.partitionSize);
+	}
+
+}
+
+public class MonsterFormation
+{
+	public class Line
+	{
+		public float spacing = 80f;
+
+		public Vector2 GetPosition(Monster m)
+		{
+			if (m.target == null)
+			{
+				return m.pos;
+			}
+			var pos = m.pos;
+			var dir = m.target.pos - pos;
+			return pos;
+		}
+	}
+}
+
+
+public class Monster : IPos
+{
+	public enum State { Exploring, Fleeing, Approaching, Attacked, }
+	public struct Attacked
+	{
+		public float elapsed;
+		public float numBlinks;
+		public Vector2 dir;
+		public State? prevState;
+	}
+
+	public struct Approaching
+	{
+		public Vector2 dir;
+		public float pause;
+		public SortedSet<Monster> followers;
+
+		public Vector2 diversionPoint;
+		public int steps;
+	}
+
+	public Entity entity;
+	public Entity? target;
+	string text;
+
+	Text textObject;
+
+	public MonsterGroup? group;
+
+	public Attacked attacked = new Attacked();
+	public Approaching approaching = new Approaching();
+	public State logicState = State.Approaching;
+
+	public CardInfo? card;
+
+	int seed = Random.Shared.Next(0, 100);
+
+
+	public float speed
+	{
+		get { return entity.speed; }
+		set { entity.speed = value; }
+	}
+
+	public Vector2 pos
+	{
+		get { return entity.pos; }
+		set { entity.pos = value; }
+	}
+	//public Vector2 lastPos { get; set; }
+
+	public RectangleF rect
+	{
+		get { return entity.rect; }
+	}
+
+
+	public Monster(int tileID, string text, Font? font = null)
+	{
+		entity = Entity.Create(tileID);
+		speed = (float)(1 + Random.Shared.NextDouble() * 2);
+		this.text = text;
+
+		font ??= Graphics.GetFont();
+		this.textObject = Graphics.NewText(font, text);
+	}
+
+	public bool IsPaused()
+	{
+		return logicState != State.Approaching || approaching.pause > 0;
+	}
+
+	public void Pause(float seconds)
+	{
+		if (logicState == State.Approaching)
+		{
+			approaching.pause = seconds;
+		}
+	}
+
+	int RandomSign()
+	{
+		return Random.Shared.Next(0, 2) == 1 ? 1 : -1;
+	}
+
+	public bool HasMonstersAround(Monster m)
+	{
+		//Console.WriteLine("huh: {0}, {1}, {2}", pos, m.pos, Vector2.Distance(pos, m.pos));
+		return Vector2.Distance(pos, m.pos) < rect.DiagonalLength() * 2.0f;
+	}
+
+	public bool DivertFromCollision()
+	{
+		if (group == null)
+		{
+			return false;
+		}
+
+		var distanceFromTarget = Vector2.Distance(pos, (target?.pos) ?? Vector2.Zero);
+		var hasCollision = false;
+
+		if (distanceFromTarget > 900)
+		{
+			return false;
+		}
+
+		foreach (var m in group.GetMonstersAt(rect))
+		{
+			if (m == this)
+			{
+				continue;
+			}
+			if (!HasMonstersAround(m))
+			{
+				return false;
+			}
+
+			var v = m.pos - pos;
+			if (v.Length() == 0)
+			{
+				v.X = (0.1f + Random.Shared.NextSingle()) * RandomSign();
+				v.Y = (0.1f + Random.Shared.NextSingle()) * RandomSign();
+			}
+			var dir = Vector2.Normalize(v);
+			pos += -dir * entity.speed * 0.31f;
+			hasCollision = true;
+		}
+
+		return hasCollision;
+	}
+
+
+	public void UpdateAttacked()
+	{
+		if (logicState == State.Attacked)
+		{
+			if (attacked.numBlinks > 2)
+			{
+				approaching.pause = 0;
+				logicState = attacked.prevState ?? State.Approaching;
+				entity.color = Color.White;
+			}
+			else if (attacked.elapsed == 0 || attacked.elapsed > .30f)
+			{
+				var entityColor = (attacked.numBlinks * 10) % 2 == 0 ? Color.Red : Color.White;
+				attacked.elapsed = 0;
+				attacked.numBlinks += 0.5f;
+				entity.color = entityColor;
+			}
+			pos += -attacked.dir * 1.5f;
+			attacked.elapsed += Love.Timer.GetDelta();
+		}
+
+	}
+
+	public void UpdateApproach()
+	{
+
+		if (target == null)
+		{
+			return;
+		}
+
+		if (approaching.pause > 0)
+		{
+			approaching.pause -= Love.Timer.GetDelta();
+		}
+
+
+
+
+		var targetVec = target.pos - pos;
+		if (targetVec.Length() > 500)
+		{
+			var point = approaching.diversionPoint;
+			if (approaching.steps % 200 == 0 || Vector2.Distance(point, pos) < 10)
+			{
+				var n = Mathf.Random(800, 1900) * RandomSign();
+				approaching.diversionPoint = target.pos + Vector2.Normalize(Vector2.Rotate(targetVec, 90)) * n;
+			}
+			approaching.steps++;
+			if (approaching.steps > 1000)
+			{
+				approaching.steps = 0;
+			}
+
+			pos += Vector2.Normalize(point - pos) * entity.speed * 1.2f;
+		}
+		else
+		{
+			if (!DivertFromCollision())
+			{
+				pos += Vector2.Normalize(targetVec) * entity.speed;
+			}
+		}
+
+
+	}
+
+	public void Update()
+	{
+		entity.Update();
+		if (logicState == State.Approaching)
+		{
+			UpdateApproach();
+		}
+		else if (logicState == State.Attacked)
+		{
+			UpdateAttacked();
+		}
+	}
+
+	public void Draw()
+	{
+		entity.Draw();
+		//Graphics.Rectangle(DrawMode.Line, entity.rect);
+
+		Graphics.Push();
+
+		var t = textObject;
+		var w = t.GetWidth();
+		var h = t.GetHeight();
+		var x = entity.rect.Center.X - w / 2;
+		var y = entity.rect.Top - h / 2;
+		var r = new RectangleF(x, y, w, h);
+		Graphics.SetFont(SharedState.instance.fontAsian);
+		Graphics.SetColor(Color.Yellow);
+		//Graphics.Rectangle(DrawMode.Line, r);
+		Graphics.SetColor(entity.color);
+		//Graphics.Rectangle(DrawMode.Line, rect);
+		Graphics.Draw(textObject, x, y);
+		//Graphics.Print("くさ草", pos.X, pos.Y);
+		//Graphics.SetFont(null);
+
+		Graphics.Pop();
+	}
+
+	public void Hit(Vector2? weapon = null)
+	{
+		if (logicState != State.Attacked)
+		{
+			attacked.prevState = logicState;
+
+			logicState = State.Attacked;
+			attacked.numBlinks = 0;
+			attacked.elapsed = 0;
+
+			var attackPos = weapon ?? target?.pos;
+			if (attackPos.HasValue)
+			{
+				attacked.dir = Vector2.Normalize(attackPos.GetValueOrDefault() - pos);
+			}
+			else
+			{
+				attacked.dir = Vector2.Normalize(new Vector2(
+					Random.Shared.Next(1, 2),
+					Random.Shared.Next(1, 2)
+				));
+			}
+
+
+			// TODO: game scenes/stages
+			// - move script code to GameView
+
+			// TODO: random terrain
+			// TODO: add one more weapon (change with B button)
+			// TODO: cast spells 
+			// TODO: snake-like formation of monsters
+			// TODO: implement other monster logic states
+			// TODO: z-order, sort by y
+			// TODO: add a silly bobbing walking motion
+
+			// TODO: remove xFFmpeg.NET dependency
+			//       and create separate tool for extracting/converting the audio
+
+			// TODO: remove anki dependecy
+			//       and create separate tool for extracting the card data
+
+			// TODO: I may need to remove the anki dependency
+			// and add the card contents as static asset
+			// that will defnitely make it easier to share publicly
+		}
+	}
+
+	public void Dispose()
+	{
+		textObject.Clear();
+		textObject.Dispose();
+	}
+}
+
+
+public class Player
+{
+	enum State { Normal, Dashing }
+	class Dashing
+	{
+		public const float maxCooldown = 0.5f;
+		public const float maxDistance = 35f;
+		public const float startingStepSize = 10;
+
+
+		public float steps = 0;
+		public float stepSize = 0f;
+		public float cooldown = 0f;
+		public Vector2 dir = Vector2.Zero;
+	}
+
+	// -----------------------------------
+
+	public Vector2 pos
+	{
+		get { return entity.pos; }
+		set { entity.pos = value; }
+	}
+	public Vector2 dir
+	{
+		get { return entity.dir; }
+		set { entity.dir = value; }
+	}
+	public RectangleF rect
+	{
+		get { return entity.rect; }
+	}
+
+
+	public Entity entity;
+	public WeaponEntity sword;
+
+	State logicState = State.Normal;
+	Dashing dashing = new Dashing();
+
+
+	public Player()
+	{
+
+		var i = Random.Shared.Next(0, TileID.players.Length);
+		entity = Entity.Create(TileID.players[i]);
+		sword = WeaponEntity.RandomWeapon();
+
+		//sword.AttachTo(entity, new Vector2(-50, 0));
+		sword.AttachTo(entity, new Vector2(-0.5f, 0.1f));
+	}
+
+	public void UpdateCharacter()
+	{
+		if (logicState == State.Normal)
+		{
+			entity.pos += entity.speed * GAxis.left.activeDir;
+			dashing.cooldown += Love.Timer.GetDelta();
+		}
+		else if (logicState == State.Dashing)
+		{
+			entity.pos += dashing.dir * dashing.steps * dashing.stepSize;
+			dashing.steps += dashing.stepSize;
+
+			if (dashing.stepSize > 1)
+			{
+				dashing.stepSize -= 1.5f;
+				if (dashing.stepSize <= 0)
+				{
+					dashing.stepSize = 1;
+				}
+			}
+
+			if (dashing.steps >= Dashing.maxDistance)
+			{
+				logicState = State.Normal;
+			}
+		}
+	}
+	public void UpdateWeapon()
+	{
+		sword.Update();
+		sword.PointAt(GAxis.right.movingDir);
+		GAxis.right.buildMomentum = Gamepad.IsDown(GamepadButton.LeftShoulder);
+	}
+	public void DoAction1()
+	{
+		sword.DoAction();
+	}
+	public void DoAction2()
+	{
+		var canDash = dashing.cooldown >= Dashing.maxCooldown && dir.Length() > 0;
+		if (logicState == State.Normal && canDash)
+		{
+			Dash();
+		}
+	}
+	public void Dash()
+	{
+		dashing.steps = 0;
+		dashing.cooldown = 0;
+		dashing.dir = Vector2.Normalize(entity.dir);
+		dashing.stepSize = Dashing.startingStepSize;
+		logicState = State.Dashing;
+	}
+
+	public void Update()
+	{
+
+		UpdateCharacter();
+		UpdateWeapon();
+
+		entity.dir = GAxis.left.activeDir;
+		entity.FaceDirectionX(GAxis.right.passiveDir);
+		entity.Update();
+	}
+
+	public void Draw()
+	{
+		if (logicState == State.Dashing)
+		{
+			var pos = entity.pos;
+			for (var i = 1; i <= 3; i++)
+			{
+				entity.pos = pos + -dashing.dir * (i * 30);
+			}
+			entity.Draw();
+
+			entity.pos = pos;
+		}
+
+		entity.Draw();
+		sword.Draw();
+		//Graphics.Rectangle(DrawMode.Line, rect);
+		Graphics.Circle(DrawMode.Line, entity.pos, 10);
+	}
+}
+
+public class Camera
+{
+	public float zoom = 1.0f;
+
+	public Vector2 pos;
+	public RectangleF innerRect;
+	public Font font = Graphics.NewFont(18);
+
+	public Camera()
+	{
+		var center = SharedState.instance.center;
+		var width = Graphics.GetWidth() * 0.55f;
+		var height = Graphics.GetHeight() * 0.55f;
+		var pos = center - new Vector2(width / 2, height / 2);
+		innerRect = new RectangleF(
+			pos.X,
+			pos.Y,
+			width / zoom,
+			height / zoom
+		);
+	}
+
+	public void CenterAt(Vector2 p)
+	{
+		if (p.X < innerRect.Left)
+		{
+			innerRect.Left = p.X;
+		}
+		else if (p.X > innerRect.Right)
+		{
+			innerRect.Right = p.X;
+		}
+
+		if (p.Y < innerRect.Top)
+		{
+			innerRect.Top = p.Y;
+		}
+		else if (p.Y > innerRect.Bottom)
+		{
+			innerRect.Bottom = p.Y;
+		}
+	}
+
+	public void Update()
+	{
+
+	}
+
+	public void Draw()
+	{
+	}
+
+	public void StartDraw()
+	{
+		Graphics.Push();
+		var center = SharedState.instance.center;
+		var dx = center.X / zoom - innerRect.Width / 2;
+		var dy = center.Y / zoom - innerRect.Height / 2;
+
+		Graphics.Scale(zoom, zoom);
+		Graphics.Translate(-innerRect.Left + dx, -innerRect.Top + dy);
+	}
+
+	public void EndDraw()
+	{
+		//Graphics.Rectangle(DrawMode.Line, innerRect);
+		Graphics.Pop();
+
+		//Graphics.SetFont(font);
+		//Graphics.Print(string.Format("{0},  {1}", (innerRect.Width), (innerRect.Width / zoom)), Graphics.GetWidth() - 300, 50);
+		//Graphics.SetFont(null);
+
+		Graphics.SetColor(Color.White);
+		Graphics.Circle(DrawMode.Fill, SharedState.instance.center, 5);
+	}
+}
+
+
+
+public class World
+{
+	Vector2 size = new Vector2(5000, 5000);
+	Vector2 origin = new Vector2(0, 0);
+	int tileSize = SharedState.instance.worldTileSize;
+	Color gridColor = new Color(80, 80, 80, 255);
+
+	Canvas gridCanvas;
+	Player player;
+	public World(Player player)
+	{
+		this.player = player;
+
+		gridCanvas = Graphics.NewCanvas((int)size.X, (int)size.Y);
+		Graphics.SetCanvas(gridCanvas);
+		Graphics.SetColor(gridColor);
+		for (var x = 0f; x < gridCanvas.GetWidth(); x += tileSize)
+		{
+			for (var y = 0f; y < gridCanvas.GetHeight(); y += tileSize)
+			{
+				Graphics.Rectangle(DrawMode.Line, x, y, tileSize, tileSize);
+			}
+
+		}
+		Graphics.SetCanvas();
+	}
+
+	public void Draw()
+	{
+		var tile = (
+			(int)(player.pos.X / tileSize),
+			(int)(player.pos.Y / tileSize)
+		);
+
+		Graphics.Push();
+		//Graphics.Translate(-gridCanvas.GetWidth() / 2, -gridCanvas.GetHeight() / 2);
+		Graphics.Draw(gridCanvas, origin.X, origin.Y);
+
+		//Graphics.SetColor(Color.Red);
+		//Graphics.Rectangle(DrawMode.Fill, tile.Item1 * tileSize, tile.Item2 * tileSize, tileSize, tileSize);
+
+		Graphics.Pop();
+	}
+}
+
+enum WeaponState
+{
+	OnHand,
+	Attacking,
+	Returning
+}
+

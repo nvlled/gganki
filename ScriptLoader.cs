@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Love;
+using CSScriptLib;
+using CSScripting;
 
 namespace gganki_love;
 
@@ -7,6 +9,8 @@ public class ScriptLoader
 {
 	FileSystemWatcher? watcher;
 	public bool enabled;
+	public bool needsRecompile;
+
 	View? script;
 
 	string loadError = "";
@@ -21,9 +25,12 @@ public class ScriptLoader
 
 	bool tryReload = false;
 
+	Gpr gpr;
+
 	public ScriptLoader(SharedState state)
 	{
 		this.state = state;
+		gpr = new Gpr();
 	}
 
 	public void Reload()
@@ -37,7 +44,8 @@ public class ScriptLoader
 				script = null;
 			}
 
-			var newScript = CSScriptLib.CSScript.RoslynEvaluator.LoadFile<View>(filename, state);
+			//CSScriptLib.CSScript.Evaluator.LoadFile
+			var newScript = CSScript.Evaluator.LoadFile<View>(filename, state);
 			newScript.Load();
 			lastLoad = Love.Timer.GetTime();
 			loadError = "";
@@ -48,7 +56,7 @@ public class ScriptLoader
 		catch (Exception err)
 		{
 			loadError = err.Message;
-			Console.WriteLine(err.Message);
+			Console.WriteLine(err.StackTrace);
 		}
 	}
 
@@ -60,9 +68,13 @@ public class ScriptLoader
 			return;
 		}
 
+		CSScript.EvaluatorConfig.Engine = EvaluatorEngine.Roslyn;
+		CSScript.Evaluator.With(eval => eval.IsCachingEnabled = true);
+
+
 		var title = Window.GetTitle();
 		Window.SetTitle("loading script");
-		script = CSScriptLib.CSScript.RoslynEvaluator.LoadFile<View>(filename, state);
+		script = CSScript.Evaluator.LoadFile<View>(filename, state);
 		script.Load();
 		lastLoad = Love.Timer.GetTime();
 		Window.SetTitle(title);
@@ -74,18 +86,29 @@ public class ScriptLoader
 
 		watcher.Changed += (sender, e) =>
 		{
-			if (e.Name == filename && e.ChangeType == WatcherChangeTypes.Changed)
+			if (e.ChangeType != WatcherChangeTypes.Changed)
 			{
-				if (Love.Timer.GetTime() - lastLoad < 0.3)
-				{
-					return;
-				}
+				return;
+			}
 
-				Console.WriteLine("changed: " + e.Name);
-				tryReload = true;
+			if (Love.Timer.GetTime() - lastLoad < 0.3)
+			{
+				return;
+			}
+
+			Console.WriteLine("changed: " + e.Name);
+
+			if (e.Name != filename)
+			{
+				needsRecompile = true;
+			}
+			else
+			{
 				// Note: Löve API must be invoked only from the main thread
 				// or else, some bugs will happen like text not rendering
+				tryReload = true;
 			}
+
 		};
 
 		watcher.Error += (sender, e) =>
@@ -93,7 +116,7 @@ public class ScriptLoader
 			Console.WriteLine("error: " + e.ToString());
 		};
 
-		watcher.Filter = filename;
+		watcher.Filter = "*.cs";
 		watcher.IncludeSubdirectories = true;
 		watcher.EnableRaisingEvents = true;
 
@@ -112,6 +135,7 @@ public class ScriptLoader
 
 	public void Update()
 	{
+		gpr.ResetLine();
 		if (tryReload)
 		{
 			Reload();
@@ -130,7 +154,7 @@ public class ScriptLoader
 		}
 		catch (Exception e)
 		{
-			updateError = e.Message;
+			updateError = e.StackTrace;
 			Console.WriteLine("script update error: {0}", e.Message);
 		}
 	}
@@ -144,17 +168,21 @@ public class ScriptLoader
 		//Graphics.SetColor(bgColor);
 		//Graphics.Rectangle(DrawMode.Fill, 0, 0, Graphics.GetWidth(), Graphics.GetHeight());
 		Graphics.SetColor(Color.White);
-		Graphics.Print("script running");
+		gpr.Print("# script running");
+		if (needsRecompile)
+		{
+			gpr.Print("*** Non-script source changed, please recompile project");
+		}
 
 		var pos = new Vector2(50, 50);
 
 		if (!string.IsNullOrEmpty(loadError))
 		{
-			Graphics.Print("load error: " + loadError, pos.X, pos.Y);
+			gpr.Print("load error: " + loadError);
 		}
 		else if (!string.IsNullOrEmpty(updateError))
 		{
-			Graphics.Print("update error: " + updateError, pos.X, pos.Y);
+			gpr.Print("update error: " + updateError);
 		}
 		else
 		{
@@ -165,10 +193,38 @@ public class ScriptLoader
 			}
 			catch (Exception e)
 			{
-				Graphics.Print("draw error: " + e.Message, pos.X, pos.Y);
-				Console.WriteLine("script update error: {0}", e.Message);
+				gpr.Print("draw error: " + e.StackTrace);
+				Console.WriteLine("script update error: {0}", e.StackTrace);
 			}
 		}
+	}
+}
+
+public class Gpr
+{
+	Vector2 pos = new Vector2(20, 20);
+	Font font;
+	int lineNum = 0;
+
+	public Gpr()
+	{
+		font = Graphics.GetFont() ?? Graphics.NewFont(18);
+	}
+
+	public void ResetLine()
+	{
+		lineNum = 0;
+	}
+
+	public void Print(string format, params object[] args)
+	{
+		Graphics.SetFont(font);
+
+		var str = args.Length > 0 ? string.Format(format, args) : format;
+		Graphics.Print(str, pos.X, pos.Y + lineNum * font.GetHeight() * 1.3f);
+
+		lineNum++;
+		Graphics.SetFont(null);
 	}
 }
 

@@ -189,4 +189,17 @@ public class AnkiConnect
 
 		return WrapNullError(data);
 	}
+
+	public static async Task<AnkiConnectResponse<string>> GetMedia(string ankiFile)
+	{
+		var reqBody = new AnkiConnectRequest("retrieveMediaFile", new
+		{
+			filename = ankiFile
+		});
+		var resp = await Post(reqBody);
+		var json = await resp.Content.ReadAsStringAsync();
+		var data = JsonSerializer.Deserialize<AnkiConnectResponse<string>>(json);
+
+		return WrapNullError(data);
+	}
 }

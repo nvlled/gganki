@@ -1,6 +1,7 @@
 ﻿
 
 using System.Text.Json;
+using FFmpeg.NET;
 using Love;
 
 namespace gganki_love;
@@ -21,6 +22,10 @@ public class Program : Scene
 		{
 			WindowResizable = true,
 			WindowTitle = "gganki",
+			WindowWidth = 1366,
+			WindowHeight = 800,
+			WindowX = 10,
+			WindowY = 10,
 		});
 		Boot.Run(new Program());
 	}
@@ -65,8 +70,10 @@ public class Program : Scene
 			loader.AddTask("deck cards", cardTask)
 		);
 
-		state.deckCards[deckName] = cardTask.Result.value;
+		var cards = cardTask.Result.value;
+		state.deckCards[deckName] = cards;
 
+		Console.WriteLine("saving deck name " + deckName);
 		gameView = new GameView(deckName, state);
 		state.SetActiveView(gameView);
 
@@ -98,6 +105,10 @@ public class Program : Scene
 
 	public override async void Load()
 	{
+		//var filename = "78de88070e17b513462f962a8a481c6d.ogg";
+		//var source = await AudioManager.LoadAudio(filename);
+		//source.Play();
+
 		Graphics.SetFont(state.fontAsian);
 
 		state.atlasImage = new AtlasImage(Graphics.NewImage("assets/atlas.png"));
@@ -205,19 +216,29 @@ public class Program : Scene
 	public override void Update(float dt)
 	{
 		state.center = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
+
+		if (state.uninitializedView)
+		{
+			state.activeView.Load();
+			state.uninitializedView = false;
+
+		}
 		state.activeView.Update();
 		//Lua.Update(dt);
 
 		scriptLoader.Update();
 	}
 
+
 	public override void Draw()
 	{
-		state.atlasImage?.StartDraw();
+		//state.atlasImage?.StartDraw();
 		state.activeView.Draw();
-		state.atlasImage?.EndDraw();
+		//state.atlasImage?.EndDraw();
 
 		scriptLoader.Draw();
+
+		Graphics.Print(Love.Timer.GetFPS().ToString(), 20, Graphics.GetHeight() - Graphics.GetFont().GetHeight() * 1.2f);
 
 		//Lua.Draw();
 	}

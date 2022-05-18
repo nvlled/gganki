@@ -15,8 +15,14 @@ public class Entity
 	public bool reversedX;
 
 	public bool debug = false;
-	public float scale = 3;
+	public float scale = 2;
 	public RectangleF rect = new RectangleF();
+
+	public float flipX = 1;
+	public float flipY = 1;
+
+	public bool mirroredX = false;
+	public bool mirroredY = false;
 
 	public Color color = Color.White;
 
@@ -52,16 +58,20 @@ public class Entity
 		rect.Height = n * scale;
 	}
 
+	public void FaceDirectionX(Vector2 dir)
+	{
+		flipX = Vector2.Dot(dir, Directions.Right) > 0 ? -1 : 1;
+	}
+
 
 	public void Draw()
 	{
 		var n = atlasImage.tileSize;
-		//var xt = Vector2.Dot(dir, Directions.Right) > 0 ? -1 : 1;
-		var xt = 1;
-
 		Graphics.SetColor(color);
-		atlasImage.Draw(quad, pos.X, pos.Y, radianAngle, scale * xt, scale, n / 2, n / 2);
 
+		var xt = (mirroredX ? -1 : 1) * flipX;
+		var yt = (mirroredY ? -1 : 1) * flipY;
+		atlasImage.Draw(quad, pos.X, pos.Y, radianAngle, scale * xt, scale * yt, n / 2, n / 2);
 	}
 }
 
@@ -141,6 +151,7 @@ public class GameView : View
 
 		if (cards is null) return;
 
+
 		var newObjects = new List<GameObject>();
 		foreach (var card in cards)
 		{
@@ -155,22 +166,20 @@ public class GameView : View
 		{
 			var width = state.fontAsian.GetWidth("w");
 			obj.pos = new Vector2(
-				state.rand.Next(0, Graphics.GetWidth() - width * obj.text.Length),
-				state.rand.Next(0, Graphics.GetHeight() - state.fontAsian.GetHeight())
+				Random.Shared.Next(0, Graphics.GetWidth() - width * obj.text.Length),
+				Random.Shared.Next(0, Graphics.GetHeight() - state.fontAsian.GetHeight())
 			);
 			obj.dir = Vector2.Normalize(new Vector2(
-				(float)(-1.0 + state.rand.NextDouble() * 2.0),
-				(float)(-1.0 + state.rand.NextDouble() * 2.0)
+				(float)(-1.0 + Random.Shared.NextDouble() * 2.0),
+				(float)(-1.0 + Random.Shared.NextDouble() * 2.0)
 			));
 		}
-		newObjects.Sort((a, b) => state.rand.Next(-1, 2));
+		newObjects.Sort((a, b) => Random.Shared.Next(-1, 2));
 		objects = newObjects.GetRange(0, 30);
 	}
 
 	void View.Draw()
 	{
-		state.player?.Draw();
-
 		Graphics.SetFont(state.fontAsian);
 		foreach (var obj in objects)
 		{
@@ -182,8 +191,8 @@ public class GameView : View
 
 	void View.Update()
 	{
-		state.player?.Update();
-		MovePlayer();
+		//state.player?.Update();
+		//MovePlayer();
 
 		// TODO: weapon throwing
 		// TODO: implement game stages (see notebook)

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <WarningLevel>0</WarningLevel>
     <OutputType>Exe</OutputType>
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>gganki_love</RootNamespace>
@@ -12,7 +13,8 @@
   <ItemGroup>
     <PackageReference Include="CS-Script" Version="4.4.2" />
     <PackageReference Include="LoveSharp" Version="11.0.51" />
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.11.0" />
+    <PackageReference Include="xFFmpeg.NET" Version="7.1.3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.11.0" />
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3">
       <IncludeAssets>runtime; build; native; buildtransitive</IncludeAssets>

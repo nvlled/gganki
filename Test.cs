@@ -1,10 +1,12 @@
 
 
+using Love;
+using gganki_love;
 using Xunit;
 
 public class Test
 {
-	[Fact]
+	//[Fact]
 	public async void TestFetchDecks()
 	{
 		var deckResp = await AnkiConnect.FetchDecks();
@@ -32,7 +34,7 @@ public class Test
 		Console.WriteLine(cardResp?.value?[0].cardId);
 	}
 
-	[Fact]
+	//[Fact]
 	public async void TestFetchCardInfo()
 	{
 		var resp = await AnkiConnect.FetchCardInfo(1614446068564);
@@ -41,4 +43,54 @@ public class Test
 		Assert.NotEmpty(resp.value);
 	}
 
+
+	class Item : IPos
+	{
+		public string name { set; get; }
+		public Vector2 pos { get; set; }
+		//public Vector2 lastPos { get; set; }
+
+		public override string ToString()
+		{
+			return string.Format("[{0} {1}]", name, pos);
+		}
+	}
+
+	//[Fact]
+	public async void TestPartitionList()
+	{
+		var list = new PartitionedList<Item>(10);
+		var a = new Item { name = "a" };
+		var b = new Item { name = "b", pos = new Vector2(150, 0) };
+		var c = new Item { name = "c", pos = new Vector2(5, 5) };
+
+		list.Add(a);
+		list.Add(b);
+		list.Add(c);
+
+
+		for (var i = 0; i < 10; i++)
+		{
+			foreach (var x in list.Iterate())
+			{
+				x.pos += new Vector2(1.1f, 1.05f);
+				list.Move(x);
+			}
+		}
+
+
+		var partition = list.GetItemsAt(new Vector2(11, 19)).ToHashSet();
+		Assert.True(partition.Contains(a));
+		Assert.False(partition.Contains(b));
+		Assert.True(partition.Contains(c));
+	}
+
+	//[Fact]
+	public async void TestLoadAudio()
+	{
+
+		var filename = "78de88070e17b513462f962a8a481c6d.ogg";
+		var source = await AudioManager.LoadAudio(filename);
+		//source.Play();
+	}
 }
