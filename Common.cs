@@ -16,6 +16,8 @@ public interface IPos
 public class Config
 {
 	public const int fontSize = 52;
+	public const int fontSizeTiny = 14;
+	public const int fontSizeSmall = 18;
 	public const string savedStateFilename = ".gganki-session";
 }
 
@@ -34,6 +36,8 @@ public class SharedState
 
 	public Font fontAsian = Graphics.NewFont(Config.fontSize);
 	public Font fontRegular = Graphics.NewFont(Config.fontSize);
+	public Font fontTiny = Graphics.NewFont(Config.fontSizeTiny);
+	public Font fontSmall = Graphics.NewFont(Config.fontSizeSmall);
 
 	public AtlasImage? atlasImage;
 

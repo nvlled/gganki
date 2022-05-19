@@ -73,6 +73,11 @@ public class Entity
 		var yt = (mirroredY ? -1 : 1) * flipY;
 		atlasImage.Draw(quad, pos.X, pos.Y, radianAngle, scale * xt, scale * yt, n / 2, n / 2);
 	}
+
+	public bool CollidesWith(Entity e)
+	{
+		return Vector2.Distance(pos, e.pos) < rect.DiagonalLength() / 2 + e.rect.DiagonalLength() / 2;
+	}
 }
 
 record GameObject(CardInfo card, string text, Font font)

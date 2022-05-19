@@ -26,7 +26,7 @@ public class Script : View
 	World world;
 	MonsterGroup monsters;
 
-	Source testAudio;
+	Game game;
 
 
 	public Script(SharedState state)
@@ -34,35 +34,13 @@ public class Script : View
 		this.state = state;
 		subScripts = new List<View> { };
 
-		testPlayer = new Player();
-		cam = new Camera();
-		world = new World(testPlayer);
-		monsters = new MonsterGroup();
+		game = new Game(state);
 	}
 
 	public void Load()
 	{
-		testAudio = Audio.NewSource("output.ogg", SourceType.Stream);
 
-		//state.player.pos = state.center;
-		testPlayer.entity.pos = state.center;
-
-
-		var numText = 15;
-		var defaultText = "化物語";
-		var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
-		var cards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
-		cards.Sort((a, b) => Random.Shared.Next(-1, 2));
-		cards = cards.Take(numText).ToList();
-
-		AnkiAudioPlayer.LoadCardAudios(cards);
-
-		//monsters = MonsterGroup.CreateFromTexts(cards.Select(c => c?.fields?["VocabKanji"]?.value ?? defaultText));
-		monsters = MonsterGroup.CreateFromCards(cards);
-		foreach (var m in monsters.Iterate())
-		{
-			m.target = testPlayer.entity;
-		}
+		game.Load();
 
 		/*
 		for (var i = 0; i < 20; i++)
@@ -94,10 +72,9 @@ public class Script : View
 
 	public void Unload()
 	{
+		game.Unload();
 		GamepadHandler.OnAxis -= OnGamepadAxis;
 		GamepadHandler.OnPress -= OnGamepadPress;
-
-		monsters.Dispose();
 	}
 
 	public void Update()
@@ -105,63 +82,16 @@ public class Script : View
 		UpdateSubScripts();
 		GAxis.left.Update();
 		GAxis.right.Update();
-
-		testPlayer.Update();
-
-		cam.Update();
-		cam.CenterAt(testPlayer.pos);
-
-		monsters.Update();
-
-		if (Gamepad.IsPressed(GamepadButton.A))
-		{
-			testPlayer.DoAction1();
-		}
-		else if (Gamepad.IsPressed(GamepadButton.B))
-		{
-			testPlayer.DoAction2();
-		}
-
-		/*
-		foreach (var m in monsters.GetMonstersAt(testPlayer.rect))
-		{
-			if (Vector2.Distance(m.pos, testPlayer.pos) < testPlayer.rect.Width)
-			{
-				m.Hit(testPlayer.pos);
-			}
-		}
-		*/
-
-		var sword = testPlayer.sword;
-		foreach (var m in monsters.GetMonstersAt(sword.GetEndPos()))
-		{
-			var hit = sword.HasHit(m);
-			if (hit && sword.enabled)
-			{
-				m.Hit(sword.pos);
-
-				var filename = m?.card?.fields?["VocabAudio"].value;
-				AnkiAudioPlayer.Play(filename);
-			}
-		}
-		/*
-		*/
-
 		GAxis.right.buildMomentum = Gamepad.IsDown(GamepadButton.LeftShoulder);
+
+		game.Update();
 	}
 
 	public void Draw()
 	{
 		DrawSubScripts();
 
-		cam.StartDraw();
-		world.Draw();
-		testPlayer.Draw();
-
-		monsters.Draw();
-
-		cam.EndDraw();
-
+		game.Draw();
 
 		GAxis.left.Draw();
 		GAxis.right.Draw();
@@ -469,13 +399,11 @@ public class WeaponEntity
 
 	public bool HasHit(Monster m)
 	{
+		if (velocity.Length() < 20)
+		{
+			return false;
+		}
 		return m.rect.Contains(GetHandlePos()) || m.rect.Contains(GetEndPos()) || m.rect.Contains(entity.pos);
-		//if (!m.rect.Contains(GetEndPos()) && !m.rect.Contains(entity.pos))
-		//{
-		//	return false;
-		//}
-		////return velocity.Length() > 20;
-		//return true;
 	}
 
 
@@ -584,13 +512,7 @@ public class GAxis
 			pointing = 0;
 		}
 
-		momentum += dir;
-		momentum *= 0.99f;
 
-		if (pointing > 0.5f)
-		{
-			momentum = 0;
-		}
 
 
 		movingDir = movingDir + activeDir * 0.5f;
@@ -598,6 +520,12 @@ public class GAxis
 
 		if (buildMomentum)
 		{
+			if (pointing > 0.5f)
+			{
+				momentum = 0;
+			}
+			momentum += dir;
+			momentum *= 0.99f;
 			movingDir = Polar.Rotate(momentum / 5, movingDir);
 		}
 
@@ -842,35 +770,18 @@ public class MonsterGroup
 
 }
 
-public class MonsterFormation
-{
-	public class Line
-	{
-		public float spacing = 80f;
-
-		public Vector2 GetPosition(Monster m)
-		{
-			if (m.target == null)
-			{
-				return m.pos;
-			}
-			var pos = m.pos;
-			var dir = m.target.pos - pos;
-			return pos;
-		}
-	}
-}
-
 
 public class Monster : IPos
 {
-	public enum State { Exploring, Fleeing, Approaching, Attacked, }
+	public enum State { Exploring, Fleeing, Approaching, Attacked, Dead }
 	public struct Attacked
 	{
 		public float elapsed;
 		public float numBlinks;
 		public Vector2 dir;
 		public State? prevState;
+
+		public Vector2 popoverOffset;
 	}
 
 	public struct Approaching
@@ -881,6 +792,10 @@ public class Monster : IPos
 
 		public Vector2 diversionPoint;
 		public int steps;
+	}
+	public struct Dead
+	{
+		public float elapsed;
 	}
 
 	public Entity entity;
@@ -893,11 +808,14 @@ public class Monster : IPos
 
 	public Attacked attacked = new Attacked();
 	public Approaching approaching = new Approaching();
+	public Dead dead = new Dead();
 	public State logicState = State.Approaching;
 
 	public CardInfo? card;
 
 	int seed = Random.Shared.Next(0, 100);
+
+	public float health = 100;
 
 
 	public float speed
@@ -1004,7 +922,7 @@ public class Monster : IPos
 				logicState = attacked.prevState ?? State.Approaching;
 				entity.color = Color.White;
 			}
-			else if (attacked.elapsed == 0 || attacked.elapsed > .30f)
+			else if (attacked.elapsed == 0 || attacked.elapsed > .50f)
 			{
 				var entityColor = (attacked.numBlinks * 10) % 2 == 0 ? Color.Red : Color.White;
 				attacked.elapsed = 0;
@@ -1013,6 +931,7 @@ public class Monster : IPos
 			}
 			pos += -attacked.dir * 1.5f;
 			attacked.elapsed += Love.Timer.GetDelta();
+			attacked.popoverOffset += attacked.dir * 0.3f; ;
 		}
 
 	}
@@ -1079,7 +998,6 @@ public class Monster : IPos
 		entity.Draw();
 		//Graphics.Rectangle(DrawMode.Line, entity.rect);
 
-		Graphics.Push();
 
 		var t = textObject;
 		var w = t.GetWidth();
@@ -1087,62 +1005,86 @@ public class Monster : IPos
 		var x = entity.rect.Center.X - w / 2;
 		var y = entity.rect.Top - h / 2;
 		var r = new RectangleF(x, y, w, h);
-		Graphics.SetFont(SharedState.instance.fontAsian);
-		Graphics.SetColor(Color.Yellow);
-		//Graphics.Rectangle(DrawMode.Line, r);
-		Graphics.SetColor(entity.color);
-		//Graphics.Rectangle(DrawMode.Line, rect);
-		Graphics.Draw(textObject, x, y);
-		//Graphics.Print("くさ草", pos.X, pos.Y);
-		//Graphics.SetFont(null);
 
-		Graphics.Pop();
+		Graphics.SetColor(IsAlive() ? Color.White : Color.WhiteSmoke);
+		Graphics.SetFont(SharedState.instance.fontAsian);
+
+		Graphics.SetColor(entity.color);
+		Graphics.Draw(textObject, x, y);
+
+		if (logicState != State.Dead)
+		{
+			var healthH = 5;
+			Graphics.SetColor(Color.Teal);
+			Graphics.Rectangle(DrawMode.Fill, entity.rect.Left, entity.rect.Bottom, (entity.rect.Width * health) / 100, healthH);
+			Graphics.SetColor(Color.SkyBlue);
+			Graphics.Rectangle(DrawMode.Line, entity.rect.Left, entity.rect.Bottom, entity.rect.Width, healthH);
+		}
+
+
+		var popover = card?.fields?["VocabDef"]?.value;
+		if (logicState == State.Attacked && popover != null && health < 50)
+		{
+			var c = pos + attacked.popoverOffset;
+			Graphics.SetColor(Color.WhiteSmoke);
+			Graphics.SetFont(SharedState.instance.fontTiny);
+			Graphics.Print(popover, c.X, c.Y);
+			Graphics.SetFont();
+		}
+		else if (!IsAlive())
+		{
+			var c = pos;
+			Graphics.SetColor(Color.WhiteSmoke);
+			Graphics.SetFont(SharedState.instance.fontSmall);
+			Graphics.Print(popover, c.X, c.Y);
+			Graphics.SetFont();
+		}
+	}
+	public bool CanDamage()
+	{
+		return logicState != State.Dead;
 	}
 
 	public void Hit(Vector2? weapon = null)
 	{
-		if (logicState != State.Attacked)
+		if (logicState == State.Attacked || logicState == State.Dead)
 		{
-			attacked.prevState = logicState;
+			return;
+		}
 
-			logicState = State.Attacked;
-			attacked.numBlinks = 0;
-			attacked.elapsed = 0;
+		if (health > 0)
+		{
+			health -= Random.Shared.Next(20, 40);
 
-			var attackPos = weapon ?? target?.pos;
-			if (attackPos.HasValue)
+			if (health <= 0)
 			{
-				attacked.dir = Vector2.Normalize(attackPos.GetValueOrDefault() - pos);
+				health = 0;
+				dead.elapsed = 0;
+				logicState = State.Dead;
+				entity.color = Color.DarkKhaki;
+				entity.radianAngle = RandomSign() * MathF.PI / 4;
+
+				return;
 			}
-			else
-			{
-				attacked.dir = Vector2.Normalize(new Vector2(
-					Random.Shared.Next(1, 2),
-					Random.Shared.Next(1, 2)
-				));
-			}
+		}
 
+		attacked.prevState = logicState;
+		logicState = State.Attacked;
+		attacked.numBlinks = 0;
+		attacked.elapsed = 0;
+		attacked.popoverOffset = Vector2.Zero;
 
-			// TODO: game scenes/stages
-			// - move script code to GameView
-
-			// TODO: random terrain
-			// TODO: add one more weapon (change with B button)
-			// TODO: cast spells 
-			// TODO: snake-like formation of monsters
-			// TODO: implement other monster logic states
-			// TODO: z-order, sort by y
-			// TODO: add a silly bobbing walking motion
-
-			// TODO: remove xFFmpeg.NET dependency
-			//       and create separate tool for extracting/converting the audio
-
-			// TODO: remove anki dependecy
-			//       and create separate tool for extracting the card data
-
-			// TODO: I may need to remove the anki dependency
-			// and add the card contents as static asset
-			// that will defnitely make it easier to share publicly
+		var attackPos = weapon ?? target?.pos;
+		if (attackPos.HasValue)
+		{
+			attacked.dir = Vector2.Normalize(attackPos.GetValueOrDefault() - pos);
+		}
+		else
+		{
+			attacked.dir = Vector2.Normalize(new Vector2(
+				Random.Shared.Next(1, 2),
+				Random.Shared.Next(1, 2)
+			));
 		}
 	}
 
@@ -1150,6 +1092,11 @@ public class Monster : IPos
 	{
 		textObject.Clear();
 		textObject.Dispose();
+	}
+
+	public bool IsAlive()
+	{
+		return health > 0;
 	}
 }
 
@@ -1194,6 +1141,9 @@ public class Player
 	State logicState = State.Normal;
 	Dashing dashing = new Dashing();
 
+	public float health = 100;
+	public float damageElapse = 0;
+
 
 	public Player()
 	{
@@ -1204,6 +1154,7 @@ public class Player
 
 		//sword.AttachTo(entity, new Vector2(-50, 0));
 		sword.AttachTo(entity, new Vector2(-0.5f, 0.1f));
+		sword.entity.scale = 2;
 	}
 
 	public void UpdateCharacter()
@@ -1251,6 +1202,16 @@ public class Player
 			Dash();
 		}
 	}
+
+	public void Hit(float damage = 0.3f)
+	{
+		if (health > 0)
+		{
+			health -= damage;
+			damageElapse = 1;
+		}
+	}
+
 	public void Dash()
 	{
 		dashing.steps = 0;
@@ -1262,7 +1223,6 @@ public class Player
 
 	public void Update()
 	{
-
 		UpdateCharacter();
 		UpdateWeapon();
 
@@ -1285,10 +1245,24 @@ public class Player
 			entity.pos = pos;
 		}
 
+		damageElapse -= Love.Timer.GetDelta();
+
+		entity.color = damageElapse > 0 ? Color.Red : Color.White;
 		entity.Draw();
 		sword.Draw();
+
 		//Graphics.Rectangle(DrawMode.Line, rect);
-		Graphics.Circle(DrawMode.Line, entity.pos, 10);
+		//Graphics.Circle(DrawMode.Line, entity.pos, 10);
+
+	}
+
+	public void DrawInterface()
+	{
+		var healthW = 300;
+		Graphics.SetColor(Color.Red);
+		Graphics.Rectangle(DrawMode.Fill, 20, 20, (healthW * health) / 100, 30);
+		Graphics.SetColor(Color.Orange);
+		Graphics.Rectangle(DrawMode.Line, 20, 20, healthW, 30);
 	}
 }
 
@@ -1423,3 +1397,280 @@ enum WeaponState
 	Returning
 }
 
+
+
+public class Game : View
+{
+	public enum State { Initializing, Playing, Gameover }
+	public class Gameover
+	{
+		public float opacity = 0;
+		public Color color = new Color(0.5f, 0, 0, 1);
+		public Font bigFont = Graphics.NewFont(120);
+		public Font smallFont = Graphics.NewFont(30);
+		public Text gameoverText;
+		public Text subText;
+
+		public Gameover()
+		{
+			gameoverText = Graphics.NewText(bigFont, "Game over");
+			subText = Graphics.NewText(smallFont, "<Press any key to play again>");
+		}
+	}
+
+	SharedState state;
+	Player player;
+	Camera cam;
+	World world;
+	MonsterGroup monsters;
+
+	public State gameState = State.Playing;
+	public Gameover gameover = new Gameover();
+
+	public Game(SharedState state)
+	{
+		this.state = state;
+
+		cam = new Camera();
+		player = new Player();
+		world = new World(player);
+		monsters = new MonsterGroup();
+
+	}
+	public void Load()
+	{
+		KeyHandler.OnKeyPress += KeyPressed;
+		GamepadHandler.OnPress += GamepadPressed;
+
+		StartGame();
+	}
+
+	private void GamepadPressed(Joystick arg1, GamepadButton arg2)
+	{
+		HandleGameoverInput();
+	}
+
+	private void KeyPressed(KeyConstant key, Scancode scancode, bool isRepeat)
+	{
+		HandleGameoverInput();
+	}
+
+	public void HandleGameoverInput()
+	{
+		if (gameState == State.Gameover && gameover.opacity >= 1)
+		{
+			monsters.Dispose();
+			StartGame();
+		}
+	}
+	public void StartGame()
+	{
+
+		cam = new Camera();
+		player = new Player();
+		world = new World(player);
+
+		player.entity.pos = state.center;
+		var numText = 20;
+		var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
+		var cards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
+		cards.Sort((a, b) => Random.Shared.Next(-1, 2));
+		cards = cards.Take(numText).ToList();
+
+		AnkiAudioPlayer.LoadCardAudios(cards);
+
+		monsters = MonsterGroup.CreateFromCards(cards);
+		foreach (var m in monsters.Iterate())
+		{
+			m.target = player.entity;
+		}
+
+		gameState = State.Initializing;
+	}
+
+	public void Draw()
+	{
+
+		cam.StartDraw();
+		{
+			world.Draw();
+			player.Draw();
+			monsters.Draw();
+		}
+		cam.EndDraw();
+
+		if (gameState == State.Playing)
+		{
+			player.DrawInterface();
+		}
+		else if (gameState == State.Gameover)
+		{
+			DrawGameover();
+		}
+
+	}
+	public void DrawGameover()
+	{
+
+		var bigText = gameover.gameoverText;
+		var smallText = gameover.subText;
+
+		Graphics.SetColor(gameover.color);
+		Graphics.SetFont(gameover.bigFont);
+		Graphics.Draw(bigText, state.center.X - bigText.GetWidth() / 2, state.center.Y - bigText.GetHeight() / 2);
+
+		Graphics.SetFont();
+		if (gameover.opacity >= 1)
+		{
+			Graphics.Draw(smallText, state.center.X - smallText.GetWidth() / 2, state.center.Y + bigText.GetHeight() - smallText.GetHeight() / 2);
+		}
+	}
+
+	public void UpdateGameover()
+	{
+		if (gameover.opacity < 1)
+		{
+			gameover.opacity += 0.01f;
+			if (gameover.opacity > 1)
+			{
+				gameover.opacity = 1;
+			}
+			gameover.color.Rf = gameover.opacity;
+		}
+	}
+
+	public void UpdatePlaying()
+	{
+		player.Update();
+
+		if (Gamepad.IsPressed(GamepadButton.A))
+		{
+			player.DoAction1();
+		}
+		else if (Gamepad.IsPressed(GamepadButton.B))
+		{
+			player.DoAction2();
+		}
+
+
+		var sword = player.sword;
+		foreach (var m in monsters.GetMonstersAt(sword.GetEndPos()))
+		{
+			var hit = sword.HasHit(m);
+			if (hit && sword.enabled && m.IsAlive())
+			{
+				m.Hit(sword.pos);
+
+				var filename = m?.card?.fields?["VocabAudio"].value;
+				AnkiAudioPlayer.Play(filename);
+			}
+		}
+		foreach (var m in monsters.GetMonstersAt(player.pos))
+		{
+			if (player.entity.CollidesWith(m.entity) && m.CanDamage())
+			{
+				player.Hit();
+			}
+		}
+
+		if (player.health <= 0)
+		{
+			gameover.opacity = 0;
+			gameState = State.Gameover;
+			Console.WriteLine("gameover");
+		}
+	}
+
+	public void Update()
+	{
+		cam.Update();
+		cam.CenterAt(player.pos);
+
+		monsters.Update();
+
+		if (gameState == State.Playing)
+		{
+			UpdatePlaying();
+		}
+		else if (gameState == State.Gameover)
+		{
+			UpdateGameover();
+		}
+		else if (gameState == State.Initializing)
+		{
+			gameState = State.Playing;
+		}
+	}
+
+	public void Unload()
+	{
+		monsters.Dispose();
+	}
+
+}
+// TODO: game scenes/stages
+// - monster target hunting
+//   - hunt N monsters, .e.g. hunt 5 草
+//   - split monster to several monsters by each SentKanji character on death
+//   - alternate between VocabKanji and SentKanji
+//   - show target kanji and count on UI
+//   - with reps
+//   - on successful hunt, end current level
+//     - show card details
+
+//   - X add pseudo monster texts
+//     X replace characters with random kanji
+
+// - non-target monsters take less damage
+
+// - target monsters with card.type == new
+//   -  change VocabKanji to SentKanji
+//   -  change VocabDef to SentEng
+//   - split monster to several monsters by each SentKanji character on death
+//   - make it boss-like, larger and more health and damage
+//     - less monsters for less noise
+
+
+
+// - monster  (re)spawning
+// - pickables (sword, health, bomb)
+
+// TODO: random terrain
+// TODO: add a silly bobbing walking motion
+
+// TODO: cast spells 
+// TODO: add one more weapon (change with B button)
+// TODO: add more fun attack variations
+
+// TODO: snake-like formation of monsters
+// TODO: implement other monster logic states
+// TODO: z-order, sort by y
+
+// TODO: add SFX and BGM?
+// It's a good chance to create a full working game
+// so I might as well add it
+// I don't think I can go another month or two
+// without a job
+// so I can probably use this project
+// when applying
+// I don't know how would that work though
+// "Hey, I made a shitty game, please hire me"
+// like that
+
+// TODO: remove xFFmpeg.NET dependency
+//       and create separate tool for extracting/converting the audio
+
+// TODO: remove anki dependecy
+//       and create separate tool for extracting the card data
+// but that means I have to implement my own spacing algorithm
+// this is probably not easy to do
+// besides, being able use anki 
+// as the interface for managing the deck
+// saves me time from reimplementing a bunch of features
+// what if create to separate projects
+// one standalone game, and one anki game UI 
+
+
+// TODO: I may need to remove the anki dependency
+// and add the card contents as static asset
+// that will defnitely make it easier to share publicly
