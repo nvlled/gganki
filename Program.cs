@@ -105,8 +105,8 @@ public class Program : Scene
 
 	public override async void Load()
 	{
-		//Mouse.SetRelativeMode(true);
-		//Mouse.SetVisible(true);
+		Mouse.SetRelativeMode(true);
+		Mouse.SetVisible(false);
 		//var filename = "78de88070e17b513462f962a8a481c6d.ogg";
 		//var source = await AudioManager.LoadAudio(filename);
 		//source.Play();

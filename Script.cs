@@ -487,37 +487,6 @@ public class GAxis
 		float axisX = 0;
 		float axisY = 0;
 
-		if (enableMouse)
-		{
-			var v = Mouse.GetPosition() - Mouse.GetPreviousPosition();
-			if (v.Length() > 0)
-			{
-				var w = Vector2.Normalize(Mouse.GetPosition() - SharedState.self.center);
-				//var w = Vector2.Normalize(Mouse.GetPosition() - Mouse.GetPreviousPosition());
-				axisX = w.X;
-				axisY = w.Y;
-			}
-		}
-
-		if (enableKeyboard)
-		{
-			if (Keyboard.IsDown(Up))
-			{
-				axisY = -1;
-			}
-			else if (Keyboard.IsDown(Down))
-			{
-				axisY = 1;
-			}
-			if (Keyboard.IsDown(Right))
-			{
-				axisX = -1;
-			}
-			else if (Keyboard.IsDown(Left))
-			{
-				axisX = 1;
-			}
-		}
 
 		if (gamepad != null)
 		{
@@ -528,6 +497,42 @@ public class GAxis
 
 			axisX = gamepad.GetGamepadAxis(xType);
 			axisY = gamepad.GetGamepadAxis(yType);
+		}
+
+		if (axisX + axisY == 0)
+		{
+			if (enableMouse)
+			{
+				var v = Mouse.GetPosition() - Mouse.GetPreviousPosition();
+				if (v.Length() > 0)
+				{
+					var w = Vector2.Normalize(Mouse.GetPosition() - SharedState.self.center);
+					//var w = Vector2.Normalize(Mouse.GetPosition() - Mouse.GetPreviousPosition());
+					axisX = w.X;
+					axisY = w.Y;
+				}
+			}
+
+
+			if (enableKeyboard)
+			{
+				if (Keyboard.IsDown(Up))
+				{
+					axisY = -1;
+				}
+				else if (Keyboard.IsDown(Down))
+				{
+					axisY = 1;
+				}
+				if (Keyboard.IsDown(Right))
+				{
+					axisX = -1;
+				}
+				else if (Keyboard.IsDown(Left))
+				{
+					axisX = 1;
+				}
+			}
 		}
 
 		activeDir = new Vector2(axisX, 0) + Vector2.UnitY * activeDir;
@@ -789,6 +794,11 @@ public class MonsterGroup
 			mon.group = this;
 		}
 	}
+	public void Add(Monster mon)
+	{
+		monsters.Add(mon);
+		mon.group = this;
+	}
 
 	public IEnumerable<Monster> Iterate()
 	{
@@ -838,11 +848,32 @@ public class MonsterGroup
 	{
 		monsters.Remove(m);
 	}
+
+	public Monster? GetRandom(Monster except)
+	{
+		for (var tries = 0; tries < 5; tries++)
+		{
+			foreach (var m in monsters.Iterate())
+			{
+				if (except == m)
+				{
+					continue;
+				}
+				if (Random.Shared.NextSingle() < 0.3f)
+				{
+					return m;
+				}
+			}
+		}
+		return null;
+	}
 }
 
 
 public class Monster : IPos
 {
+	public event Action<Monster> OnMonsterKill = (e) => { };
+
 	public enum State { Exploring, Fleeing, Approaching, Attacked, Dead }
 	public struct Attacked
 	{
@@ -863,6 +894,11 @@ public class Monster : IPos
 		public Vector2 diversionPoint;
 		public int steps;
 	}
+	public struct Fleeing
+	{
+		public float time;
+		public Vector2 dir;
+	}
 	public struct Dead
 	{
 		public float elapsed;
@@ -880,6 +916,7 @@ public class Monster : IPos
 
 	public Attacked attacked = new Attacked();
 	public Approaching approaching = new Approaching();
+	public Fleeing fleeing = new Fleeing();
 	public Dead dead = new Dead();
 	public State logicState = State.Approaching;
 
@@ -888,7 +925,7 @@ public class Monster : IPos
 	int seed = Random.Shared.Next(0, 100);
 
 	public float health = 100;
-
+	public float defense = 1;
 
 	public float speed
 	{
@@ -917,6 +954,13 @@ public class Monster : IPos
 
 		font ??= Graphics.GetFont();
 		this.textObject = Graphics.NewText(font, text);
+	}
+
+	public Monster()
+	{
+		var font = Graphics.GetFont();
+		this.entity = Entity.Create(0);
+		this.textObject = Graphics.NewText(font, "");
 	}
 
 	public bool IsPaused()
@@ -984,6 +1028,17 @@ public class Monster : IPos
 	}
 
 
+	public void UpdateFleeing()
+	{
+		fleeing.time -= Love.Timer.GetDelta();
+		pos += fleeing.dir * entity.speed * 1.2f;
+		if (fleeing.time <= 0)
+		{
+			logicState = State.Approaching;
+			fleeing.time = 0;
+		}
+	}
+
 	public void UpdateAttacked()
 	{
 		if (logicState == State.Attacked)
@@ -1020,9 +1075,6 @@ public class Monster : IPos
 		{
 			approaching.pause -= Love.Timer.GetDelta();
 		}
-
-
-
 
 		var targetVec = target.pos - pos;
 		if (targetVec.Length() > 500)
@@ -1062,6 +1114,16 @@ public class Monster : IPos
 		else if (logicState == State.Attacked)
 		{
 			UpdateAttacked();
+		}
+		else if (logicState == State.Fleeing)
+		{
+			UpdateFleeing();
+		}
+
+		if (logicState != State.Dead && health <= 0)
+		{
+			logicState = State.Dead;
+			OnMonsterKill(this);
 		}
 	}
 
@@ -1116,22 +1178,33 @@ public class Monster : IPos
 		return logicState != State.Dead;
 	}
 
+	public void Flee(float seconds = 2)
+	{
+		logicState = State.Fleeing;
+		fleeing.time += seconds;
+		if (target != null)
+		{
+			var angle = Random.Shared.Next(-45, 45);
+			fleeing.dir = Polar.Rotate(angle * MathF.PI / 180, Vector2.Normalize(pos - target.pos));
+		}
+	}
+
 	public void Hit(Vector2? weapon = null, float damage = 1)
 	{
-		if (logicState == State.Attacked || logicState == State.Dead)
+		if (logicState == State.Attacked || logicState == State.Dead || logicState == State.Fleeing)
 		{
 			return;
 		}
 
 		if (health > 0)
 		{
-			health -= damage;
+			health -= damage / defense;
 
 			if (health <= 0)
 			{
 				health = 0;
 				dead.elapsed = 0;
-				logicState = State.Dead;
+				//logicState = State.Dead;
 				entity.color = Color.DarkKhaki;
 				entity.radianAngle = RandomSign() * MathF.PI / 4;
 
@@ -1168,6 +1241,24 @@ public class Monster : IPos
 	public bool IsAlive()
 	{
 		return health > 0;
+	}
+
+	public Monster Clone()
+	{
+		var m = new Monster(this.entity.tileID, this.text);
+		m.pos = pos;
+		//m.entity.rect = rect;
+		m.logicState = logicState;
+		m.speed = speed;
+		m.group = group;
+		m.card = card;
+		m.target = target;
+
+		m.health = 100;
+		m.textObject = Graphics.NewText(textObject.GetFont(), m.text);
+		m.logicState = State.Approaching;
+
+		return m;
 	}
 }
 
@@ -1473,14 +1564,16 @@ enum WeaponState
 public class Game : View
 {
 	public enum State { Initializing, Playing, Clear, Gameover }
-	public enum HuntState { Vocab, VocabParts, Example, ExampleParts, Clear }
+	public enum HuntState { Init, Vocab, VocabParts, Example, ExampleParts, Clear }
 
 	public class Playing
 	{
 		public int targetIndex = 0;
 		public HuntState state = HuntState.Vocab;
-		public Monster[] subTargets = new Monster[0];
-		public Monster? target;
+		public List<Monster> subTargets = new List<Monster>();
+		public Monster target = new Monster();
+		public int rounds;
+		public int maxRounds;
 	}
 
 	public class Clear
@@ -1536,6 +1629,8 @@ public class Game : View
 	public Playing playing = new Playing();
 	public Clear clear = new Clear();
 	public float elapsed = 0;
+
+	public List<Monster> killedMonsters = new List<Monster>();
 
 	public Game(SharedState state)
 	{
@@ -1593,7 +1688,9 @@ public class Game : View
 		var numText = 15;
 		var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
 		var cards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
+
 		cards.Sort((a, b) => Random.Shared.Next(-1, 2));
+
 		cards = cards.Take(numText).ToList();
 
 		foreach (var card in cards)
@@ -1601,6 +1698,10 @@ public class Game : View
 			RemoveUnwantedText(card, "VocabKanji");
 			RemoveUnwantedText(card, "SentKanji");
 			RemoveUnwantedText(card, "SentEng");
+
+			//card.fields["VocabKanji"].value += card.fields["VocabKanji"].value;
+
+
 			Console.WriteLine("Card> {0},{1}", card.cardId, card.GetField("SentKanji"));
 		}
 
@@ -1618,21 +1719,28 @@ public class Game : View
 		AnkiAudioPlayer.LoadCardAudios(cards);
 
 		player.entity.pos = state.center;
+
+		//cards.AddRange(cards);
+
 		monsterGroup = MonsterGroup.CreateFromCards(cards);
 
 		var monsters = monsterGroup.Iterate().ToArray();
 		foreach (var m in monsters)
 		{
 			m.target = player.entity;
+			m.OnMonsterKill += OnMonsterKill;
 		}
 
 
 		if (monsters.Length > 0)
 		{
-			playing.state = HuntState.Vocab;
 			playing.targetIndex = 0;
 			playing.target = monsters[0];
-			playing.subTargets = new Monster[] { monsters[0] };
+
+
+			playing.state = HuntState.Init;
+			NextHuntState();
+
 		}
 
 		gameState = State.Playing;
@@ -1650,58 +1758,70 @@ public class Game : View
 		newMonster.pos = m.pos;
 		newMonster.card = m.card;
 		newMonster.entity.scale = 5;
+		newMonster.defense = 5;
+		newMonster.OnMonsterKill += OnMonsterKill;
+		newMonster.Flee(3);
 
 		return newMonster;
 	}
 
-	public Monster[] SplitMonsterByVocab(Monster m)
+	public Monster[] SplitMonsterBy(Monster m, string fieldName)
 	{
-		var text = m.card?.GetField("VocabKanji") ?? m.text;
+		var text = m.card?.GetField(fieldName) ?? m.text;
 		var subMonsters = new List<Monster>();
 		var font = SharedState.self.fontAsian;
+		var audioFilename = m.card?.GetField(fieldName == "SentKanji" ? "SentAudio" : "VocabAudio") ?? m.text;
 		foreach (var ch in text)
 		{
 			if (char.IsWhiteSpace(ch))
 			{
 				continue;
 			}
-			var newMon = new Monster(m.entity.tileID, ch.ToString(), font);
-			newMon.pos = m.pos;
-			newMon.target = m.target;
-			newMon.card = m.card;
-			newMon.audioFilename = m.audioFilename;
-			subMonsters.Add(newMon);
+			var newMonster = new Monster(TileID.RandomMonsterID(), ch.ToString(), font);
+			newMonster.pos = m.pos;
+			newMonster.target = m.target;
+			newMonster.card = m.card;
+			newMonster.audioFilename = audioFilename;
+			newMonster.OnMonsterKill += OnMonsterKill;
+			newMonster.defense = 0.3f;
+			newMonster.Flee(3);
+
+			subMonsters.Add(newMonster);
 		}
 		return subMonsters.ToArray();
 	}
 
-	public Monster[] SplitMonsterByExample(Monster m)
-	{
-		if (m.card?.HasField("SentKanji") ?? false)
+	/*
+		public Monster[] SplitMonsterByExample(Monster m)
 		{
-			Console.WriteLine("no SentKanji");
-			return new Monster[0];
-		}
-
-		var text = m.card?.GetField("SentKanji") ?? m.text;
-		var subMonsters = new List<Monster>();
-		var font = SharedState.self.fontAsian;
-		var audioFilename = m.card?.GetField("SentAudio") ?? m.text;
-		foreach (var ch in text)
-		{
-			if (char.IsWhiteSpace(ch))
+			//var text = m.card?.GetField("SentKanji") ?? m.text;
+			if (!m.card.HasExample())
 			{
-				continue;
+				Console.WriteLine("no SentKanji");
+				return new Monster[0];
 			}
-			var newMon = new Monster(m.entity.tileID, ch.ToString(), font);
-			newMon.pos = m.pos;
-			newMon.target = m.target;
-			newMon.card = m.card;
-			newMon.audioFilename = audioFilename;
-			subMonsters.Add(newMon);
+
+			var text = m.card?.GetField("SentKanji") ?? m.text;
+			var subMonsters = new List<Monster>();
+			var font = SharedState.self.fontAsian;
+			var audioFilename = m.card?.GetField("SentAudio") ?? m.text;
+			foreach (var ch in text)
+			{
+				if (char.IsWhiteSpace(ch))
+				{
+					continue;
+				}
+				var newMonster = new Monster(m.entity.tileID, ch.ToString(), font);
+				newMonster.pos = m.pos;
+				newMonster.target = m.target;
+				newMonster.card = m.card;
+				newMonster.audioFilename = audioFilename;
+				newMonster.OnMonsterKill += OnMonsterKill;
+				subMonsters.Add(newMonster);
+			}
+			return subMonsters.ToArray();
 		}
-		return subMonsters.ToArray();
-	}
+	*/
 
 	public void Draw()
 	{
@@ -1733,7 +1853,7 @@ public class Game : View
 
 	public void DrawTargets()
 	{
-		if (playing.subTargets.Length == 0)
+		if (playing.subTargets.Count() == 0)
 		{
 			return;
 		}
@@ -1750,22 +1870,48 @@ public class Game : View
 		player.DrawInterface();
 
 
-		var i = 0;
-		var coloredText = new List<ColoredString>();
-		foreach (var mon in playing.subTargets)
 		{
-			var c = !mon.IsAlive() ? Color.Gray
-				: i == playing.targetIndex ? Color.PaleGreen
-				: Color.Gray;
-			i++;
-			coloredText.Add(new ColoredString(mon.text, c));
+			var i = 0;
+			var coloredText = new List<ColoredString>();
+			foreach (var mon in playing.subTargets)
+			{
+				var c = i < playing.targetIndex ? Color.White
+					: i == playing.targetIndex ? Color.PaleGreen
+					: Color.Gray;
+				i++;
+				coloredText.Add(new ColoredString(mon.text, c));
+			}
+
+			var text = new ColoredStringArray(coloredText.ToArray());
+			var font = SharedState.self.fontAsian;
+			var pos = new Vector2(0, Graphics.GetHeight() - font.GetHeight() * 1.2f);
+			Graphics.SetFont(SharedState.self.fontAsian);
+			Graphics.SetColor(Color.White);
+			Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth(), AlignMode.Center);
+
+			font = SharedState.self.fontMedium;
+			Graphics.SetFont(font);
+			Graphics.Printf(
+				string.Format("{0}/{1}", playing.rounds, playing.maxRounds),
+				pos.X, pos.Y - font.GetHeight(), Graphics.GetWidth(), AlignMode.Center
+			);
 		}
 
-		var text = new ColoredStringArray(coloredText.ToArray());
-		var font = SharedState.self.fontAsian;
-		var pos = new Vector2(0, Graphics.GetHeight() - font.GetHeight() * 1.2f);
-		Graphics.SetColor(Color.White);
-		Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth(), AlignMode.Center);
+		{
+			var font = SharedState.self.fontMedium;
+			var pos = new Vector2(Graphics.GetWidth() / 2, font.GetHeight() / 2);
+			var card = playing.target.card;
+			var s = playing.state;
+			var text = s == HuntState.VocabParts || (playing.rounds >= 2 && s == HuntState.Vocab)
+				? card?.GetField("VocabDef")
+				: s == HuntState.VocabParts
+				? card?.GetField("SentEng")
+				: "";
+
+			Graphics.SetColor(Color.White);
+			Graphics.SetFont(font);
+			Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth() / 2 - 20, AlignMode.Right);
+		}
 	}
 
 	public void UpdateClear()
@@ -1833,23 +1979,66 @@ public class Game : View
 		}
 	}
 
+	public void OnMonsterKill(Monster m)
+	{
+		killedMonsters.Add(m);
+	}
+
+
 	public void UpdateTargets()
 	{
-		if (playing.targetIndex >= playing.subTargets.Length)
+		foreach (var m in killedMonsters)
 		{
-			return;
-		}
-
-		var target = playing.subTargets[playing.targetIndex];
-		if (!target.IsAlive())
-		{
-			playing.targetIndex++;
-			if (playing.targetIndex >= playing.subTargets.Length)
+			if (playing.targetIndex >= playing.subTargets.Count())
 			{
+				break;
+			}
+			Console.WriteLine("killed {0}", m.text);
+
+			var target = playing.subTargets[playing.targetIndex];
+			if (m != target)
+			{
+				if (m.text != target.text)
+				{
+					continue;
+				}
+
+				playing.subTargets[playing.targetIndex] = m;
+				target = m;
+			}
+
+
+			playing.rounds++;
+			if (playing.rounds < playing.maxRounds)
+			{
+
+				var font = SharedState.self.fontAsian;
+				var newMonster = new Monster(TileID.RandomMonsterID(), target.text.ToString(), font);
+				newMonster.pos = Vector2Ext.Random(Graphics.GetWidth());
+				newMonster.target = m.target;
+				newMonster.card = m.card;
+				newMonster.audioFilename = target.audioFilename;
+				newMonster.OnMonsterKill += OnMonsterKill;
+				newMonster.Flee(1);
+
+				playing.subTargets.Clear();
+				playing.subTargets.Add(newMonster);
+				monsterGroup.Add(newMonster);
+
+				continue;
+			}
+
+			playing.targetIndex++;
+
+			if (playing.targetIndex >= playing.subTargets.Count())
+			{
+
+				Console.WriteLine("next hunt");
 				NextHuntState();
 			}
 		}
 	}
+
 	public void NextHuntState()
 	{
 		playing.targetIndex = 0;
@@ -1859,37 +2048,43 @@ public class Game : View
 			monsterGroup.Remove(m);
 			playing.target.pos = m.pos;
 		}
-		playing.subTargets = new Monster[0];
+
+		playing.subTargets.Clear();
+		playing.maxRounds = 2;
+		playing.rounds = 1;
 
 		var current = playing.state;
 		var target = playing.target;
-		if (current == HuntState.Vocab)
+		if (current == HuntState.Init)
 		{
-			playing.subTargets = SplitMonsterByVocab(target);
-			playing.state = HuntState.VocabParts;
+			playing.subTargets.Add(target);
 
+			if (target.text.Length <= 1)
+			{
+				playing.maxRounds += 2;
+			}
+			if (!target.card.HasExample())
+			{
+				playing.maxRounds += 2;
+			}
+
+			playing.state = HuntState.Vocab;
+		}
+		else if (current == HuntState.Vocab)
+		{
+			TransitionVocab(target);
 		}
 		else if (current == HuntState.VocabParts)
 		{
-			if (target.card.HasExample())
-			{
-				playing.subTargets = new Monster[] { CreateExampleMonster(target) };
-				playing.state = HuntState.Example;
-			}
-			else
-			{
-				ClearLevel();
-			}
+			TransitionVocabParts(target);
 		}
 		else if (current == HuntState.Example)
 		{
-			// TODO: handle skip to next if no SentKanji
-			playing.subTargets = SplitMonsterByExample(target);
-			playing.state = HuntState.ExampleParts;
+			TransitionExample(target);
 		}
 		else if (current == HuntState.ExampleParts)
 		{
-			ClearLevel();
+			TransitionExampleParts(target);
 		}
 		else
 		{
@@ -1898,7 +2093,46 @@ public class Game : View
 		}
 
 		monsterGroup.AddAll(playing.subTargets);
+
 	}
+
+	private void TransitionVocab(Monster target)
+	{
+
+		if (target.text.Length <= 1)
+		{
+			TransitionVocabParts(target);
+		}
+		else
+		{
+			playing.subTargets.AddRange(SplitMonsterBy(target, "VocabKanji"));
+			playing.state = HuntState.VocabParts;
+		}
+	}
+	private void TransitionVocabParts(Monster target)
+	{
+		if (target?.card?.HasExample() ?? false)
+		{
+			Console.WriteLine("to example {0}", target.card.GetField("SentKanji"));
+			playing.subTargets.Add(CreateExampleMonster(target));
+			playing.state = HuntState.Example;
+		}
+		else
+		{
+			ClearLevel();
+		}
+	}
+	private void TransitionExample(Monster target)
+	{
+		Console.WriteLine("to example parts");
+		playing.subTargets.AddRange(SplitMonsterBy(target, "SentKanji"));
+		playing.state = HuntState.ExampleParts;
+	}
+	private void TransitionExampleParts(Monster target)
+	{
+		ClearLevel();
+	}
+
 
 	public void ClearLevel()
 	{
@@ -1911,16 +2145,16 @@ public class Game : View
 	{
 		player.Update();
 
-		if (Gamepad.IsPressed(GamepadButton.A) || Mouse.IsPressed(MouseButton.LeftButton))
+		if (Gamepad.IsPressed(GamepadButton.RightShoulder) || Mouse.IsPressed(MouseButton.LeftButton))
 		{
 			player.DoAction1();
 		}
-		else if (Gamepad.IsPressed(GamepadButton.B) || Keyboard.IsPressed(KeyConstant.Space))
+		else if (Gamepad.IsPressed(GamepadButton.A) || Keyboard.IsPressed(KeyConstant.Space))
 		{
 			player.DoAction2();
 		}
 
-		var targetMonster = playing.targetIndex >= 0 && playing.targetIndex < playing.subTargets.Length
+		var targetMonster = playing.targetIndex >= 0 && playing.targetIndex < playing.subTargets.Count()
 				? playing.subTargets[playing.targetIndex] : null;
 
 		var sword = player.sword;
@@ -1929,9 +2163,9 @@ public class Game : View
 			var hit = sword.HasHit(m);
 			if (hit && sword.enabled && m.IsAlive())
 			{
-
-				var damage = m != targetMonster ? 0 : Random.Shared.Next(30, 50);
-				if (m == targetMonster)
+				var isTarget = m.text == targetMonster?.text;
+				var damage = !isTarget ? 0 : Random.Shared.Next(60, 100);
+				if (isTarget)
 				{
 
 					Console.WriteLine("damage: {0}", damage);
@@ -1985,6 +2219,11 @@ public class Game : View
 		{
 			gameState = State.Playing;
 		}
+
+		if (killedMonsters.Count() > 0)
+		{
+			killedMonsters.Clear();
+		}
 	}
 
 	public void Unload()
@@ -1994,13 +2233,24 @@ public class Game : View
 
 }
 
-// TODO: handle duplicate target character (ignore punctuation)
+
+
+
+
 // TODO: show centered big kanji at game start
-// TODO: set monster max health
-// TODO: randomize tileID of splitted monsters
-// TODO: if target is single character, one more turn
-// TODO: if no example, one more turn
 // TODO: try the coroutine for monster re-merging effect
+// add Component{Update,Draw} on entities
+
+// TODO: group non-kanji as one in examples
+
+// TODO:
+// At start, show example, highlight vocab
+// choices are monsters semi-moving
+// with translation text above their heads
+// wrong answer transitions to playing,
+// correct answer, choice to train or to go to next card
+
+
 
 // TODO: game scenes/stages
 // - monster target hunting
