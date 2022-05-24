@@ -115,6 +115,25 @@ public record class CardInfo
 
 	public Dictionary<string, CardInfoFieldEntry>? fields { get; set; }
 
+
+	public bool HasExample()
+	{
+		return fields != null && fields.ContainsKey("SentKanji");
+	}
+
+	public bool HasField(string name)
+	{
+		return fields != null && fields.ContainsKey(name);
+	}
+
+	public string? GetField(string name, string? defaultValue = null)
+	{
+		if (fields != null && fields.ContainsKey(name))
+		{
+			return fields[name].value ?? defaultValue;
+		}
+		return defaultValue;
+	}
 }
 
 

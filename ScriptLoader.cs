@@ -202,9 +202,9 @@ public class ScriptLoader
 
 public class Gpr
 {
-	Vector2 pos = new Vector2(20, 20);
-	Font font;
-	int lineNum = 0;
+	public Vector2 pos = new Vector2(20, 20);
+	public Font font;
+	float yOffset = 0;
 
 	public Gpr()
 	{
@@ -213,7 +213,7 @@ public class Gpr
 
 	public void ResetLine()
 	{
-		lineNum = 0;
+		yOffset = 0;
 	}
 
 	public void Print(string format, params object[] args)
@@ -221,9 +221,9 @@ public class Gpr
 		Graphics.SetFont(font);
 
 		var str = args.Length > 0 ? string.Format(format, args) : format;
-		Graphics.Print(str, pos.X, pos.Y + lineNum * font.GetHeight() * 1.3f);
+		Graphics.Print(str, pos.X, pos.Y + yOffset);
 
-		lineNum++;
+		yOffset += font.GetHeight() * 1.1f;
 		Graphics.SetFont(null);
 	}
 }

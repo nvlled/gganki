@@ -1,4 +1,7 @@
 using System.Text.RegularExpressions;
+using FFMpegCore;
+using FFMpegCore.Enums;
+using FFMpegCore.Pipes;
 using Love;
 
 namespace gganki_love;
@@ -18,13 +21,14 @@ public class Config
 	public const int fontSize = 52;
 	public const int fontSizeTiny = 14;
 	public const int fontSizeSmall = 18;
+	public const int fontSizeMedium = 32;
 	public const string savedStateFilename = ".gganki-session";
 }
 
 
 public class SharedState
 {
-	public static readonly SharedState instance = new SharedState();
+	public static readonly SharedState self = new SharedState();
 
 	public int worldTileSize = 200;
 
@@ -38,6 +42,7 @@ public class SharedState
 	public Font fontRegular = Graphics.NewFont(Config.fontSize);
 	public Font fontTiny = Graphics.NewFont(Config.fontSizeTiny);
 	public Font fontSmall = Graphics.NewFont(Config.fontSizeSmall);
+	public Font fontMedium = Graphics.NewFont(Config.fontSizeMedium);
 
 	public AtlasImage? atlasImage;
 
@@ -46,6 +51,8 @@ public class SharedState
 	public string? lastDeckName;
 
 	public Vector2 center = Vector2.Zero;
+	public Vector2 centerTop = Vector2.Zero;
+	public Vector2 centerBottom = Vector2.Zero;
 
 	public bool uninitializedView = false;
 
@@ -284,7 +291,7 @@ public class PartitionedList<T> where T : IPos
 	public class Partition : HashSet<T> { }
 	public class Mapping : Dictionary<IntPair, Partition> { }
 
-	public int partitionSize { get; set; }
+	public int partitionSize { get; init; }
 
 	Mapping items = new Mapping();
 
@@ -383,6 +390,7 @@ public class PartitionedList<T> where T : IPos
 
 	// this isn't safe for concurrent invocation
 	// but it should be fine for mostly single-thread games like this
+	// TODO: use a simple object pool, free object on return
 	HashSet<IntPair> _getItemsSet = new HashSet<IntPair>();
 	public IEnumerable<T> GetItemsAt(params Vector2[] positions)
 	{
@@ -398,6 +406,30 @@ public class PartitionedList<T> where T : IPos
 				yield return item;
 			}
 		}
+	}
+
+	public void Remove(T item)
+	{
+		Vector2 lastPos;
+		Partition? partition = null;
+		if (itemSet.TryGetValue(item, out lastPos))
+		{
+			var oldKey = GetKey(lastPos);
+			if (items.TryGetValue(oldKey, out partition))
+			{
+				partition.Remove(item);
+			}
+		}
+
+		if (lastPos != item.pos)
+		{
+			if (items.TryGetValue(GetKey(item.pos), out partition))
+			{
+				partition.Remove(item);
+			}
+		}
+
+		itemSet.Remove(item);
 	}
 }
 public class AnkiAudioPlayer
@@ -508,11 +540,13 @@ public class AudioManager
 
 	public static async Task ConvertAndSave(System.IO.Stream stream, string filename)
 	{
-		var file = new FFmpeg.NET.StreamInput(stream);
-		var outfile = new FFmpeg.NET.OutputFile(filename);
-		var engine = new FFmpeg.NET.Engine("ffmpeg");
-		var cancel = new CancellationToken();
-		await engine.ConvertAsync(file, outfile, cancel);
+		FFMpegArguments
+		    .FromPipeInput(new StreamPipeSource(stream))
+		    .OutputToFile(filename, false, options => options
+			.WithAudioCodec(AudioCodec.LibVorbis)
+			.WithFastStart())
+		    .ProcessSynchronously();
+
 	}
 
 	public static Love.Source? GetCacheAudio(string ankiFile)

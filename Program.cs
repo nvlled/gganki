@@ -32,7 +32,7 @@ public class Program : Scene
 
 	public Program()
 	{
-		state = SharedState.instance;
+		state = SharedState.self;
 		state.fontAsian = Graphics.NewFont("assets/togoshi.ttf", Config.fontSize);
 		scriptLoader = new ScriptLoader(state);
 		Keyboard.SetKeyRepeat(true);
@@ -105,6 +105,8 @@ public class Program : Scene
 
 	public override async void Load()
 	{
+		//Mouse.SetRelativeMode(true);
+		//Mouse.SetVisible(true);
 		//var filename = "78de88070e17b513462f962a8a481c6d.ogg";
 		//var source = await AudioManager.LoadAudio(filename);
 		//source.Play();
@@ -115,12 +117,6 @@ public class Program : Scene
 		state.player = new Entity(state.atlasImage, TileID.player);
 
 		state.lastDeckName = RestoreSavedState().lastDeckName;
-
-		// TODO: remove
-		state.player.pos = new Vector2(
-			Graphics.GetWidth() / 2 - state.atlasImage.tileSize / 2,
-			Graphics.GetHeight() / 2 - state.atlasImage.tileSize / 2
-		);
 
 		var loader = new LoaderView(state);
 		var tasks = new List<Task>();
@@ -216,6 +212,8 @@ public class Program : Scene
 	public override void Update(float dt)
 	{
 		state.center = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
+		state.centerTop = new Vector2(Graphics.GetWidth() / 2, 0);
+		state.centerBottom = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight());
 
 		if (state.uninitializedView)
 		{

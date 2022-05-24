@@ -11,6 +11,7 @@ public class Entity
 	public float speed { get; set; } = 5f;
 
 	public AtlasImage atlasImage { get; set; }
+	public int tileID { get; set; }
 	public Quad quad { get; set; }
 	public bool reversedX;
 
@@ -29,6 +30,7 @@ public class Entity
 	public Entity(AtlasImage atlasImage, int tileID)
 	{
 		this.atlasImage = atlasImage;
+		this.tileID = tileID;
 		quad = atlasImage.GetQuad(tileID);
 
 		var n = atlasImage.tileSize;
@@ -42,7 +44,7 @@ public class Entity
 	{
 		if (state is null)
 		{
-			state = SharedState.instance;
+			state = SharedState.self;
 		}
 		Debug.Assert(state.atlasImage != null);
 		return new Entity(state.atlasImage, tileID);
@@ -185,6 +187,7 @@ public class GameView : View
 
 	void View.Draw()
 	{
+		/*
 		Graphics.SetFont(state.fontAsian);
 		foreach (var obj in objects)
 		{
@@ -192,20 +195,19 @@ public class GameView : View
 			//Graphics.SetFont(state.fontRegular);
 			Graphics.Print(obj.text, obj.pos.X, obj.pos.Y);
 		}
+		*/
 	}
 
 	void View.Update()
 	{
 		//state.player?.Update();
 		//MovePlayer();
-
-		// TODO: weapon throwing
-		// TODO: implement game stages (see notebook)
-		// TODO: sort by review, learn then new des
+		/*
 		foreach (var obj in objects)
 		{
 			obj.pos += obj.dir;
 		}
+		*/
 	}
 }
 
