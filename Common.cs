@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FFMpegCore;
 using FFMpegCore.Enums;
 using FFMpegCore.Pipes;
+using AwaitableCoroutine;
 using Love;
 
 namespace gganki_love;
@@ -55,6 +57,8 @@ public class SharedState
 	public Vector2 centerBottom = Vector2.Zero;
 
 	public bool uninitializedView = false;
+
+	public Entity windowEntity = new Entity();
 
 	public void SetActiveView(View view)
 	{
@@ -185,7 +189,7 @@ public class AtlasImage
 	}
 }
 
-public class Polar
+public struct Polar
 {
 	public float radius;
 	public float angle;
@@ -559,6 +563,308 @@ public class AudioManager
 		catch (Exception e)
 		{
 			return null;
+		}
+	}
+}
+
+public interface IComponent
+{
+	void Draw(Entity entity);
+	void Update(Entity entity);
+}
+
+public class Component : IComponent
+{
+	public bool EnableDraw { get; set; } = true;
+	public bool EnableUpdate { get; set; } = true;
+
+	public Action<Entity>? DrawComponent { get; set; }
+	public Action<Entity>? UpdateComponent { get; set; }
+
+	public void Draw(Entity entity)
+	{
+		if (EnableDraw && DrawComponent != null)
+		{
+			DrawComponent(entity);
+		}
+	}
+
+	public void Update(Entity entity)
+	{
+		if (EnableUpdate && UpdateComponent != null)
+		{
+			UpdateComponent(entity);
+		}
+	}
+}
+
+public class ComponentView : IComponent
+{
+	public bool EnableDraw { get; set; } = true;
+	public bool EnableUpdate { get; set; } = true;
+
+	public Action? DrawComponent { get; set; }
+	public Action? UpdateComponent { get; set; }
+
+	public void Draw(Entity entity)
+	{
+		if (EnableDraw && DrawComponent != null)
+		{
+			DrawComponent();
+		}
+	}
+
+	public void Update(Entity entity)
+	{
+		if (EnableUpdate && UpdateComponent != null)
+		{
+			UpdateComponent();
+		}
+	}
+}
+
+public class ComponentRegistry
+{
+	public struct ActionDispose : IDisposable
+	{
+		Action action;
+		bool isDraw;
+		ComponentRegistry reg;
+		public ActionDispose(Action action, ComponentRegistry reg, bool isDraw)
+		{
+			this.action = action;
+			this.reg = reg;
+			this.isDraw = isDraw;
+		}
+		public void Dispose()
+		{
+			//Console.WriteLine("disposed");
+			if (isDraw)
+			{
+				reg.RemoveDraw(action);
+			}
+			else
+			{
+				reg.RemoveUpdate(action);
+			}
+		}
+	}
+	public struct CompDispose : IDisposable
+	{
+		IComponent comp;
+		ComponentRegistry reg;
+		public CompDispose(IComponent c, ComponentRegistry r) { comp = c; reg = r; }
+		public void Dispose()
+		{
+			//Console.WriteLine("disposed");
+			reg.RemoveComponent(comp);
+		}
+	}
+
+	Entity windowEntity;
+	public HashSet<IComponent> components = new HashSet<IComponent>();
+	public HashSet<Action> drawFunctions = new HashSet<Action>();
+	public HashSet<Action> updateFunctions = new HashSet<Action>();
+
+	public ComponentRegistry()
+	{
+		windowEntity = SharedState.self.windowEntity;
+	}
+
+	public IDisposable AddComponent(IComponent comp)
+	{
+		components.Add(comp);
+		return new CompDispose(comp, this);
+	}
+	public void RemoveComponent(IComponent comp) { components.Remove(comp); }
+
+	public IDisposable AddDraw(Action action)
+	{
+		drawFunctions.Add(action);
+		return new ActionDispose(action, this, true);
+	}
+	public void RemoveDraw(Action action) { drawFunctions.Remove(action); }
+
+	public IDisposable AddUpdate(Action action)
+	{
+		updateFunctions.Add(action);
+		return new ActionDispose(action, this, false);
+	}
+	public void RemoveUpdate(Action action) { updateFunctions.Remove(action); }
+
+	public IEnumerable<IComponent> GetComponents() { return components; }
+
+	public void Draw()
+	{
+		foreach (var c in components)
+		{
+			c.Draw(windowEntity);
+		}
+		foreach (var fn in drawFunctions)
+		{
+			fn();
+		}
+	}
+
+	public void Update()
+	{
+		foreach (var c in components)
+		{
+			c.Update(windowEntity);
+		}
+		foreach (var fn in updateFunctions)
+		{
+			fn();
+		}
+	}
+
+	public void Dispose()
+	{
+		components.Clear();
+	}
+
+}
+
+public class Entity
+{
+	public Vector2 pos { get; set; }
+	public Vector2 dir { get; set; }
+	public float radianAngle { get; set; } = 0f;
+	public float speed { get; set; } = 5f;
+
+	public AtlasImage atlasImage { get; set; }
+	public int tileID { get; set; }
+	public Quad quad { get; set; }
+	public bool reversedX;
+
+	public bool debug = false;
+	public float scale = 2;
+	public RectangleF rect = new RectangleF();
+
+	public float flipX = 1;
+	public float flipY = 1;
+
+	public bool mirroredX = false;
+	public bool mirroredY = false;
+
+	public Color color = Color.White;
+
+	public HashSet<IComponent> components = new HashSet<IComponent>();
+
+	public Entity(AtlasImage atlasImage, int tileID)
+	{
+		this.atlasImage = atlasImage;
+		this.tileID = tileID;
+		quad = atlasImage.GetQuad(tileID);
+
+		var n = atlasImage.tileSize;
+		rect.X = pos.X - n * scale / 2;
+		rect.Y = pos.Y - n * scale / 2;
+		rect.Width = n * scale;
+		rect.Height = n * scale;
+	}
+	public Entity()
+	{
+		var empty = new Vector4[,] { { Vector4.Zero } };
+		var data = Image.NewImageData(empty, ImageDataPixelFormat.RGBA16);
+		var image = Graphics.NewImage(data);
+
+		this.tileID = -1;
+		this.atlasImage = new AtlasImage(image);
+		this.quad = Graphics.NewQuad(0, 0, 0, 0, 0, 0);
+	}
+
+	public static Entity Create(int tileID, SharedState? state = null)
+	{
+		if (state is null)
+		{
+			state = SharedState.self;
+		}
+		Debug.Assert(state.atlasImage != null);
+		return new Entity(state.atlasImage, tileID);
+	}
+
+
+	public void AddComponent(IComponent comp) { components.Add(comp); }
+	public void RemoveComponent(IComponent comp) { components.Remove(comp); }
+	public IEnumerable<IComponent> GetComponents() { return components; }
+	public void ClearComponents()
+	{
+		components.Clear();
+	}
+
+	public void Update()
+	{
+		var n = atlasImage.tileSize;
+		rect.X = pos.X - n * scale / 2;
+		rect.Y = pos.Y - n * scale / 2;
+		rect.Width = n * scale;
+		rect.Height = n * scale;
+
+		foreach (var c in components)
+		{
+			c.Update(this);
+		}
+	}
+
+	public void FaceDirectionX(Vector2 dir)
+	{
+		flipX = Vector2.Dot(dir, Directions.Right) > 0 ? -1 : 1;
+	}
+
+
+	public void Draw()
+	{
+		var n = atlasImage.tileSize;
+		Graphics.SetColor(color);
+
+		var xt = (mirroredX ? -1 : 1) * flipX;
+		var yt = (mirroredY ? -1 : 1) * flipY;
+		atlasImage.Draw(quad, pos.X, pos.Y, radianAngle, scale * xt, scale * yt, n / 2, n / 2);
+
+		foreach (var c in components)
+		{
+			c.Draw(this);
+		}
+	}
+
+	public bool CollidesWith(Entity e)
+	{
+		return Vector2.Distance(pos, e.pos) < rect.DiagonalLength() / 2 + e.rect.DiagonalLength() / 2;
+	}
+
+}
+
+public class Corunner
+{
+	public CoroutineRunner runner = new CoroutineRunner();
+	List<CoroutineBase> coroutines = new List<CoroutineBase>();
+
+	public bool IsUpdating => runner.IsUpdating;
+
+
+	public Coroutine Create(Func<Coroutine> init)
+	{
+		var co = runner.Create(init);
+		coroutines.Add(co);
+		return co;
+	}
+
+	public Coroutine<T> Create<T>(Func<Coroutine<T>> init)
+	{
+		var co = runner.Create(init);
+		coroutines.Add(co);
+		return co;
+
+	}
+
+	public void Update() { runner.Update(); }
+
+	public void Cancel()
+	{
+		foreach (var co in coroutines)
+		{
+			if (!co.IsCompleted) co.Cancel();
 		}
 	}
 }

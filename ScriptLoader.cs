@@ -24,6 +24,7 @@ public class ScriptLoader
 	float lastLoad = 0;
 
 	bool tryReload = false;
+	bool startLoad = false;
 
 	Gpr gpr;
 
@@ -58,6 +59,11 @@ public class ScriptLoader
 			loadError = err.Message;
 			Console.WriteLine(err.StackTrace);
 		}
+	}
+
+	public void StartLoad()
+	{
+		startLoad = true;
 	}
 
 	public void Load()
@@ -136,7 +142,12 @@ public class ScriptLoader
 	public void Update()
 	{
 		gpr.ResetLine();
-		if (tryReload)
+		if (startLoad)
+		{
+			Load();
+			startLoad = false;
+		}
+		else if (tryReload)
 		{
 			Reload();
 			tryReload = false;

@@ -58,6 +58,7 @@ public class Program : Scene
 		{
 			gameView = new GameView(deckName, state);
 			state.SetActiveView(gameView);
+			scriptLoader.StartLoad();
 			return;
 		}
 
@@ -105,8 +106,8 @@ public class Program : Scene
 
 	public override async void Load()
 	{
-		Mouse.SetRelativeMode(true);
-		Mouse.SetVisible(false);
+		//Mouse.SetRelativeMode(true);
+		//Mouse.SetVisible(false);
 		//var filename = "78de88070e17b513462f962a8a481c6d.ogg";
 		//var source = await AudioManager.LoadAudio(filename);
 		//source.Play();
@@ -115,6 +116,9 @@ public class Program : Scene
 
 		state.atlasImage = new AtlasImage(Graphics.NewImage("assets/atlas.png"));
 		state.player = new Entity(state.atlasImage, TileID.player);
+
+		state.windowEntity.rect = new RectangleF(0, 0, Graphics.GetWidth(), Graphics.GetHeight());
+		state.windowEntity.pos = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
 
 		state.lastDeckName = RestoreSavedState().lastDeckName;
 
@@ -222,19 +226,26 @@ public class Program : Scene
 
 		}
 		state.activeView.Update();
-		//Lua.Update(dt);
-
 		scriptLoader.Update();
+
+		var win = state.windowEntity;
+		foreach (var c in win.GetComponents())
+		{
+			c.Update(win);
+		}
 	}
 
 
 	public override void Draw()
 	{
-		//state.atlasImage?.StartDraw();
 		state.activeView.Draw();
-		//state.atlasImage?.EndDraw();
-
 		scriptLoader.Draw();
+
+		var win = state.windowEntity;
+		foreach (var c in win.GetComponents())
+		{
+			c.Draw(win);
+		}
 
 		Graphics.Print(Love.Timer.GetFPS().ToString(), 20, Graphics.GetHeight() - Graphics.GetFont().GetHeight() * 1.2f);
 

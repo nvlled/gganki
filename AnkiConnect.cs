@@ -93,6 +93,8 @@ public class DeckNames : Dictionary<string, ulong> { }
 
 public record class CardInfo
 {
+	public enum ContentType { Vocab, Example }
+
 	public string? answer { get; set; }
 	public ulong cardId { get; set; }
 	public string? css { get; set; }
@@ -126,6 +128,15 @@ public record class CardInfo
 		return fields != null && fields.ContainsKey(name);
 	}
 
+	public string? GetExample()
+	{
+		return GetField("SentKanji");
+	}
+	public string? GetVocab()
+	{
+		return GetField("VocabKanji");
+	}
+
 	public string? GetField(string name, string? defaultValue = null)
 	{
 		if (fields != null && fields.ContainsKey(name))
@@ -133,6 +144,13 @@ public record class CardInfo
 			return fields[name].value ?? defaultValue;
 		}
 		return defaultValue;
+	}
+
+	public (string?, string?) GetContents(ContentType type)
+	{
+		var text = type == ContentType.Example ? GetExample() : GetVocab();
+		var audio = type == ContentType.Example ? GetField("SentAudio") : GetField("VocabAudio");
+		return (text, audio);
 	}
 }
 
