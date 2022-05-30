@@ -82,6 +82,7 @@ public class Script : View
 
 	public void Unload()
 	{
+		Console.WriteLine("unload script");
 		game.Unload();
 		GamepadHandler.OnAxis -= OnGamepadAxis;
 		GamepadHandler.OnPress -= OnGamepadPress;
@@ -755,12 +756,21 @@ public class MonsterGroup
 	public event Action<Monster> OnKill = (m) => { };
 	public event Action<Monster> OnHit = (m) => { };
 
+
 	HashSet<Monster> killedMonsters = new HashSet<Monster>();
 	HashSet<Monster> hitMonsters = new HashSet<Monster>();
 
 	PartitionedList<Monster> monsters = new PartitionedList<Monster>(SharedState.self.worldTileSize);
 
+	Entity? defaultTarget;
+	World? world;
+
 	public MonsterGroup() { }
+	public MonsterGroup(World world, Entity target)
+	{
+		this.world = world;
+		defaultTarget = target;
+	}
 
 	private void OnMonsterKill(Monster m)
 	{
@@ -780,10 +790,12 @@ public class MonsterGroup
 		var font = JP.HasJapanese(text) ? SharedState.self.fontAsian : SharedState.self.fontRegular;
 		var mon = new Monster(tileID, text ?? "", font);
 
-		mon.pos = Xt.Vector2.Random();
+		mon.pos = world != null ? Xt.Vector2.Random(world.Width, world.Height) : Xt.Vector2.Random();
 		mon.group = this;
 		mon.OnMonsterKill += OnMonsterKill;
-		//mon.OnMonsterHit += OnMonsterHit;// TODO
+		mon.OnMonsterHit += OnMonsterHit;
+		mon.target = defaultTarget;
+
 		monsters.Add(mon);
 
 		return mon;
@@ -806,23 +818,26 @@ public class MonsterGroup
 	//	return mon;
 	//}
 
-	public static MonsterGroup CreateFromCards(List<CardInfo> cards)
+	public void Clear()
 	{
-		var group = new MonsterGroup();
+		monsters.Clear();
+	}
+
+	public void SpawnFromCards(List<CardInfo> cards)
+	{
 		var font = SharedState.self.fontAsian;
 		foreach (var card in cards)
 		{
 			var text = card?.GetField("VocabKanji") ?? "";
 			var audioFilename = card?.GetField("VocabAudio") ?? "";
 			var damageText = card?.GetField("VocabDef") ?? "";
-			//var mon = new Monster(TileID.RandomMonsterID(), text, font);
-			var mon = group.SpawnMonster(text);
+			var mon = SpawnMonster(text);
 
 			mon.card = card;
 			mon.audioFilename = audioFilename;
 			mon.damageText = damageText;
+			mon.target = defaultTarget;
 		}
-		return group;
 	}
 
 	public void AddAll(IEnumerable<Monster> newMonsters)
@@ -854,7 +869,7 @@ public class MonsterGroup
 		);
 	}
 
-	public IEnumerable<Monster> GetMonstersAt(Vector2 pos)
+	public IEnumerable<Monster> GetMonstersAt(params Vector2[] pos)
 	{
 		return monsters.GetItemsAt(pos);
 	}
@@ -898,7 +913,7 @@ public class MonsterGroup
 
 	public void Dispose()
 	{
-		//foreach (var m in monsters.Iterate()) m.Dispose();
+		foreach (var m in monsters.Iterate()) m.Dispose();
 		monsters = new PartitionedList<Monster>(monsters.partitionSize);
 	}
 
@@ -907,7 +922,7 @@ public class MonsterGroup
 		monsters.Remove(m);
 	}
 
-	public Monster? GetRandom(Monster except)
+	public Monster? GetRandom(Monster? except = null)
 	{
 		for (var tries = 0; tries < 5; tries++)
 		{
@@ -927,10 +942,20 @@ public class MonsterGroup
 	}
 }
 
+/*
+class Monster;
+
+void Update() {
+	logicState.Update();
+}
+
+*/
+
 
 public class Monster : IPos
 {
 	public event Action<Monster> OnMonsterKill = (e) => { };
+	public event Action<Monster> OnMonsterHit = (e) => { };
 
 	public enum State { Exploring, Fleeing, Approaching, Attacked, Dead }
 	public struct Attacked
@@ -965,6 +990,7 @@ public class Monster : IPos
 	public Entity entity;
 	public Entity? target;
 	public string text;
+	public Color? textColor;
 	public string audioFilename;
 	public string damageText;
 
@@ -1195,15 +1221,16 @@ public class Monster : IPos
 		var w = t.GetWidth();
 		var h = t.GetHeight();
 		var x = entity.rect.Center.X - w / 2;
-		var y = entity.rect.Top - h / 2;
+		var y = entity.rect.Top - h * 3 / 4;
 		var r = new RectangleF(x, y, w, h);
 
 		Graphics.SetColor(IsAlive() ? Color.White : Color.WhiteSmoke);
 		Graphics.SetFont(SharedState.self.fontAsian);
 
-		Graphics.SetColor(entity.color);
+		Graphics.SetColor(textColor ?? entity.color);
 		Graphics.Draw(textObject, x, y);
 
+		Graphics.SetColor(entity.color);
 		if (logicState != State.Dead)
 		{
 			var healthH = 5;
@@ -1247,7 +1274,7 @@ public class Monster : IPos
 		}
 	}
 
-	public void Hit(Vector2? weapon = null, float damage = 1)
+	public void Hit(Vector2? weapon = null)
 	{
 		if (logicState == State.Attacked || logicState == State.Dead || logicState == State.Fleeing)
 		{
@@ -1256,8 +1283,34 @@ public class Monster : IPos
 
 		if (health > 0)
 		{
-			health -= damage / defense;
+			OnMonsterHit(this);
+		}
+	}
 
+	public void Attack(WeaponEntity? weapon = null, float damage = 1)
+	{
+		var attackDir = Vector2.Zero;
+		var attackPos = weapon?.pos ?? target?.pos;
+		if (attackPos.HasValue)
+		{
+			attackDir = Vector2.Normalize(attackPos.GetValueOrDefault() - pos);
+		}
+		else
+		{
+			attackDir = Vector2.Normalize(new Vector2(
+				Random.Shared.Next(1, 2),
+				Random.Shared.Next(1, 2)
+			));
+		}
+
+		Attack(attackDir, damage);
+
+	}
+	public void Attack(Vector2 attackDir, float damage = 1)
+	{
+		if (health > 0)
+		{
+			health -= damage / defense;
 			if (health <= 0)
 			{
 				health = 0;
@@ -1275,19 +1328,8 @@ public class Monster : IPos
 		attacked.numBlinks = 0;
 		attacked.elapsed = 0;
 		attacked.popoverOffset = Vector2.Zero;
+		attacked.dir = attackDir;
 
-		var attackPos = weapon ?? target?.pos;
-		if (attackPos.HasValue)
-		{
-			attacked.dir = Vector2.Normalize(attackPos.GetValueOrDefault() - pos);
-		}
-		else
-		{
-			attacked.dir = Vector2.Normalize(new Vector2(
-				Random.Shared.Next(1, 2),
-				Random.Shared.Next(1, 2)
-			));
-		}
 	}
 
 	public void Dispose()
@@ -1317,6 +1359,12 @@ public class Monster : IPos
 		m.logicState = State.Approaching;
 
 		return m;
+	}
+
+	public float GetTextSize(Font? font = null)
+	{
+		font ??= textObject.GetFont();
+		return font.GetWidth(text);
 	}
 }
 
@@ -1488,7 +1536,7 @@ public class Player
 
 public class Camera
 {
-	public float zoom = 0.7f;
+	public float zoom = 0.9f;
 
 	public Vector2 pos;
 	public RectangleF innerRect;
@@ -1507,8 +1555,12 @@ public class Camera
 			height / zoom
 		);
 	}
-
 	public void CenterAt(Vector2 p)
+	{
+		innerRect.Center = p;
+	}
+
+	public void RestrictWithin(Vector2 p)
 	{
 		if (p.X < innerRect.Left)
 		{
@@ -1559,7 +1611,12 @@ public class Camera
 		//Graphics.SetFont(null);
 
 		Graphics.SetColor(Color.White);
-		Graphics.Circle(DrawMode.Fill, SharedState.self.center, 5);
+		//Graphics.Circle(DrawMode.Fill, SharedState.self.center, 5);
+	}
+
+	public void Dipose()
+	{
+		font.Dispose();
 	}
 }
 
@@ -1574,6 +1631,18 @@ public class World
 
 	Canvas gridCanvas;
 	Player player;
+
+	public Vector2 Center
+	{
+		get
+		{
+			return origin + new Vector2(size.X / 2, size.Y / 2);
+		}
+	}
+
+	public float Width { get { return size.X; } }
+	public float Height { get { return size.Y; } }
+
 	public World(Player player)
 	{
 		this.player = player;
@@ -1592,6 +1661,7 @@ public class World
 		Graphics.SetCanvas();
 	}
 
+
 	public void Draw()
 	{
 		var tile = (
@@ -1607,6 +1677,11 @@ public class World
 		//Graphics.Rectangle(DrawMode.Fill, tile.Item1 * tileSize, tile.Item2 * tileSize, tileSize, tileSize);
 
 		Graphics.Pop();
+	}
+
+	public void Dispose()
+	{
+		gridCanvas.Dispose();
 	}
 }
 
@@ -1662,6 +1737,7 @@ public class GameWithCoroutines : View
 	public class Playing
 	{
 		public int subIndex = 0;
+		public CardInfo card = new CardInfo();
 		public HuntState state = HuntState.Vocab;
 		public List<Monster> subTargets = new List<Monster>();
 		public Monster target = new Monster();
@@ -1725,6 +1801,8 @@ public class GameWithCoroutines : View
 
 	ComponentRegistry components = new ComponentRegistry();
 	Corunner runner = new Corunner();
+
+	List<CardInfo> cards = new List<CardInfo>();
 
 	public State gameState = State.Playing;
 	public Gameover gameover = new Gameover();
@@ -1853,31 +1931,31 @@ public class GameWithCoroutines : View
 		cam = new Camera();
 		player = new Player();
 		world = new World(player);
-		var cards = CreateCards();
+		cards = CreateCards();
+
 
 		AnkiAudioPlayer.LoadCardAudios(cards);
-		player.entity.pos = state.center;
+		player.entity.pos = world.Center;
+		cam.CenterAt(player.pos);
 
+		playing.card = cards[0];
 
-		monsterGroup = MonsterGroup.CreateFromCards(cards);
+		//monsterGroup = MonsterGroup.CreateFromCards(cards);
+		monsterGroup = new MonsterGroup(world, player.entity);
 		monsterGroup.OnKill += OnMonsterKill;
-		monsterGroup.OnHit += OnMonsterHit;
+		monsterGroup.OnHit += OnDefaultMonsterHit;
 
+
+		/*
 		var monsters = monsterGroup.Iterate().ToArray();
-		foreach (var m in monsters)
-		{
-			m.target = player.entity;
-		}
-
-
 		if (monsters.Length > 0)
 		{
 			playing.subIndex = 0;
 			playing.target = monsters[0];
 			playing.state = HuntState.Init;
 			//NextHuntState();
-
 		}
+		*/
 
 	}
 
@@ -1904,8 +1982,15 @@ public class GameWithCoroutines : View
 		while (true)
 		{
 			InitGame();
+			//monsterGroup.SpawnFromCards(cards);
+			//var m = monsterGroup.Iterate().First();
+			//if (m != null)
+			//{
+			//	playing.subIndex = 0;
+			//	playing.target = m;
+			//	playing.state = HuntState.Init;
+			//}
 
-			await ReadyGameScript();
 
 			using var _1 = components.AddUpdate(UpdatePlayerAction);
 			using var _2 = components.AddUpdate(UpdateMonsterCollision);
@@ -1943,9 +2028,170 @@ public class GameWithCoroutines : View
 		playing.subTargets.Clear();
 	}
 
+	public async Coroutine<bool> StartChooseAnswerScript()
+	{
+		Color messageColor = Color.White;
+		Color bgColor = new Color(20, 20, 20, 200);
+		string message = "";
+		Monster? killed = null;
+
+		var onHit = (Monster m) =>
+		{
+			var damage = Random.Shared.Next(40, 60);
+			var filename = m.audioFilename;
+			AnkiAudioPlayer.Play(filename);
+			m.Attack(Vector2.Zero, damage);
+		};
+		var onKill = (Monster m) =>
+		{
+			killed = m;
+		};
+		var draw = () =>
+		{
+			if (message != "")
+			{
+				var pos = SharedState.self.centerTop + Vector2.UnitY * 50;
+				Graphics.SetColor(bgColor);
+				Xt.Graphics.PrintlnRect(DrawMode.Fill, message, SharedState.self.fontRegular);
+				Graphics.SetColor(messageColor);
+				Xt.Graphics.PrintPos = pos;
+				Xt.Graphics.Println(message, SharedState.self.fontRegular);
+			}
+		};
+
+		monsterGroup.OnHit += onHit;
+		monsterGroup.OnKill += onKill;
+		monsterGroup.OnHit -= OnDefaultMonsterHit;
+		components.RemoveDraw(DrawInterface);
+		components.AddDraw(draw);
+
+		using var _ = Defer.Run(() =>
+		{
+			monsterGroup.OnHit -= onHit;
+			monsterGroup.OnKill -= onKill;
+			monsterGroup.OnHit += OnDefaultMonsterHit;
+			components.RemoveDraw(draw);
+		});
+
+		var card = playing.card;
+		var choices = CreateChoices(card, 4);
+		var (pre, vocab, post) = CreateQuestion(card);
+
+
+
+		// TODO: add wandering monster state
+		// TODO: flee choice monsters when hit
+
+		// TODO: in-game zoom in/out
+		// set camera on question
+		// pan to player 
+		// await camera.panTo()
+		// await camera.zoomIn()
+		// await camera.zoomOut()
+
+		await Coroutine.While(() => killed == null);
+		Console.WriteLine(killed.text);
+
+
+		var correct = killed.text == playing.card.GetField("VocabDef");
+		if (correct)
+		{
+			message = "/ okay";
+			messageColor = Color.Green;
+		}
+		else
+		{
+			message = "x nope";
+			messageColor = Color.Red;
+		}
+
+		await Xt.Coroutine.Sleep(2);
+		return correct;
+	}
+	List<Monster> CreateChoices(CardInfo card, int count = 4)
+	{
+		var choices = new List<Monster>();
+		for (var i = 0; i < count - 1; i++)
+		{
+			var otherCard = cards.GetRandom(c => c != card);
+			if (otherCard == null)
+			{
+				continue;
+			}
+			var m = monsterGroup.SpawnMonster(otherCard.GetVocabDef() ?? "*");
+			m.audioFilename = otherCard.GetField("VocabAudio");
+			choices.Add(m);
+		}
+
+		var correct = monsterGroup.SpawnMonster(card.GetVocabDef() ?? "*");
+		correct.audioFilename = card.GetField("VocabAudio");
+		choices.Add(correct);
+		choices.Sort((a, b) => Random.Shared.Next(-1, 2));
+
+		var angleStep = (360 / choices.Count()) * MathF.PI / 180;
+		var d = player.entity.rect.DiagonalLength() * 2.5f;
+		var polar = new Polar(35, d);
+		foreach (var m in choices)
+		{
+			m.pos = player.pos + polar.ToVector();
+			m.target = null;
+			polar.angle += angleStep;
+		}
+
+		return choices;
+	}
+
+	(Monster?, Monster, Monster?) CreateQuestion(CardInfo card)
+	{
+		var vocab = card.GetVocab() ?? "";
+		var example = card.GetExample() ?? "";
+
+		var mid = monsterGroup.SpawnMonster(vocab);
+		if (!card.HasExample())
+		{
+			return (null, mid, null);
+		}
+
+		var (a, b) = example.DivideBy(vocab);
+		var pre = string.IsNullOrEmpty(a.Trim()) ? null : monsterGroup.SpawnMonster(a);
+		var post = string.IsNullOrEmpty(a.Trim()) ? null : monsterGroup.SpawnMonster(b);
+
+		if (pre != null) { pre.audioFilename = card.GetField("SentAudio"); }
+		if (post != null) { post.audioFilename = card.GetField("SentAudio"); }
+		mid.audioFilename = card.GetField("VocabAudio");
+
+		var qpos = player.pos + Vector2.UnitY * -player.entity.rect.DiagonalLength() * 4.5f;
+		var fontAsian = SharedState.self.fontAsian;
+		if (pre != null)
+		{
+			pre.pos = qpos - Vector2.UnitX * (mid.GetTextSize(fontAsian) / 2 + pre.GetTextSize(fontAsian) / 2);
+			pre.target = null;
+		}
+
+		mid.pos = qpos;
+		mid.target = null;
+		mid.textColor = Color.Yellow;
+
+		if (post != null)
+		{
+			post.pos = qpos + Vector2.UnitX * (mid.GetTextSize(fontAsian) / 2 + post.GetTextSize(fontAsian) / 2);
+			post.target = null;
+		}
+
+
+		return (pre, mid, post);
+	}
+
 	public async Coroutine StartHuntScript()
 	{
-		var target = playing.target;
+		var correct = await StartChooseAnswerScript();
+
+		if (correct)
+		{
+			Console.WriteLine("TODO");
+			await Xt.Coroutine.Abyss();
+			return;
+		}
 
 		// TODO: await StartSelectVocabDef();
 		// Shows Example sentence with Vocab highligted (like in anki)
@@ -1954,6 +2200,17 @@ public class GameWithCoroutines : View
 		// if correct, skip to next card
 		// if wrong, show complete example translation too
 		// then proceed
+
+		ClearSubTargets();
+		monsterGroup.Clear();
+		monsterGroup.SpawnFromCards(cards);
+		components.AddDraw(DrawInterface);
+
+		var text = playing.card.GetVocab() ?? "";
+		var target = monsterGroup.GetRandom();
+		playing.target = target;
+
+		await ReadyGameScript();
 
 		await StartVocabScript();
 
@@ -1966,7 +2223,7 @@ public class GameWithCoroutines : View
 
 		// TODO: animation, merge back monsters back to last kill
 
-		if (target.card.HasExample())
+		if (playing.card.HasExample())
 		{
 			// TODO:
 			await StartExampleScript();
@@ -2018,18 +2275,16 @@ public class GameWithCoroutines : View
 	public async Coroutine StartVocabScript()
 	{
 		playing.state = HuntState.Vocab;
-
 		var target = playing.target;
 		var skipVocabParts = target.text.Length <= 1;
 
-		ClearSubTargets();
 		playing.subTargets.Add(target);
 
 		if (skipVocabParts)
 		{
 			playing.maxHunts += 2;
 		}
-		if (!target.card.HasExample())
+		if (!playing.card.HasExample())
 		{
 			playing.maxHunts += 2;
 		}
@@ -2341,9 +2596,18 @@ public class GameWithCoroutines : View
 	public void OnMonsterKill(Monster m)
 	{
 	}
-	public void OnMonsterHit(Monster m)
-	{
 
+	public void OnDefaultMonsterHit(Monster m)
+	{
+		var targetMonster = playing.subIndex >= 0 && playing.subIndex < playing.subTargets.Count()
+			? playing.subTargets[playing.subIndex] : null;
+		var isTarget = m.text == targetMonster?.text;
+		var damage = !isTarget ? Random.Shared.Next(20, 30) : Random.Shared.Next(30, 60);
+
+		m.Attack(player.sword, damage);
+
+		var filename = m.audioFilename;
+		AnkiAudioPlayer.Play(filename);
 	}
 
 
@@ -2480,15 +2744,18 @@ public class GameWithCoroutines : View
 
 	public void UpdateMonsterCollision()
 	{
-		var targetMonster = playing.subIndex >= 0 && playing.subIndex < playing.subTargets.Count()
-				? playing.subTargets[playing.subIndex] : null;
+		//var targetMonster = playing.subIndex >= 0 && playing.subIndex < playing.subTargets.Count()
+		//? playing.subTargets[playing.subIndex] : null;
 
 		var sword = player.sword;
-		foreach (var m in monsterGroup.GetMonstersAt(sword.GetEndPos()))
+		foreach (var m in monsterGroup.GetMonstersAt(sword.GetHandlePos(), sword.GetEndPos()))
 		{
 			var hit = sword.HasHit(m);
 			if (hit && sword.enabled && m.IsAlive())
 			{
+				m.Hit(sword.pos);
+
+				/*
 				var isTarget = m.text == targetMonster?.text;
 				var damage = !isTarget ? Random.Shared.Next(20, 30) : Random.Shared.Next(30, 60);
 				if (isTarget)
@@ -2500,8 +2767,10 @@ public class GameWithCoroutines : View
 				// TODO: move to on hit
 				var filename = m.audioFilename;
 				AnkiAudioPlayer.Play(filename);
+				*/
 			}
 		}
+
 		foreach (var m in monsterGroup.GetMonstersAt(player.pos))
 		{
 			if (player.entity.CollidesWith(m.entity) && m.CanDamage())
@@ -2524,9 +2793,8 @@ public class GameWithCoroutines : View
 		elapsed += Love.Timer.GetDelta();
 
 		cam.Update();
-		cam.CenterAt(player.pos);
+		cam.RestrictWithin(player.pos);
 
-		// !!
 		components.Update();
 		runner.Update();
 
@@ -2555,8 +2823,12 @@ public class GameWithCoroutines : View
 	{
 		monsterGroup.Dispose();
 		runner.Cancel();
+		AnkiAudioPlayer.Clear();
+		world.Dispose();
+		cam.Dipose();
+		gameover.bigFont.Dispose();
+		gameover.smallFont.Dispose();
 	}
-
 }
 
 
@@ -3335,16 +3607,6 @@ Entity windowEntity;
 // if targetMonsters[targetIndex].IsDead() { next() }
 // - non-target monsters take less damage
 
-// TODO: programming intermission: check out coroutine library
-// and see if it simplifies some complicated state transitions
-
-// - target monsters with card.type == new
-//   -  change VocabKanji to SentKanji
-//   -  change VocabDef to SentEng
-//   - split monster to several monsters by each SentKanji character on death
-//   - make it boss-like, larger and more health and damage
-//     - less monsters for less noise
-
 
 // see Lemonia game for design ideas
 // - particularly the simple effects and bobbing motion
@@ -3364,7 +3626,11 @@ Entity windowEntity;
 
 // TODO: snake-like formation of monsters
 // TODO: implement other monster logic states
-// TODO: z-order, sort by y
+
+// TODO: Canvas layers (background, floor, entities, roof,  interface)
+// TODO: sort one partition per frame (add flag to skip if not modified)
+// TODO: implement a proper component-entity system
+
 
 // TODO: add SFX and BGM?
 // It's a good chance to create a full working game
@@ -3396,70 +3662,6 @@ Entity windowEntity;
 // Change SentKanji  -> Example 
 // ... etcetera
 
-
-
-class TestScript
-{
-	public async static Coroutine ShowText(string text)
-	{
-		var window = SharedState.self.windowEntity;
-		var sign = 1;
-		var size = 1f;
-		var maxSize = 5;
-		var comp = new Component();
-
-		window.AddComponent(comp);
-
-		comp.DrawComponent = (e) =>
-		{
-			Graphics.SetColor(Color.Yellow);
-			Graphics.Push();
-			Graphics.Translate(e.pos.X, e.pos.Y);
-			Graphics.Scale(size);
-			Graphics.SetFont();
-			Graphics.Print(text, 0, 0);
-			Graphics.Pop();
-		};
-		var increaseText = (Entity entity) =>
-		{
-			size += sign * Love.Timer.GetDelta();
-			Console.WriteLine(size);
-		};
-		comp.UpdateComponent = increaseText;
-
-
-		await Coroutine.WaitAny(
-			Coroutine.While(() => size < maxSize),
-			Xt.Coroutine.AwaitKey(KeyConstant.Enter)
-		);
-
-		sign = -1;
-		comp.EnableUpdate = false;
-		await Xt.Coroutine.Sleep(5);
-		comp.EnableUpdate = true;
-
-		Console.WriteLine("decreasing");
-
-		await Coroutine.WaitAny(
-			Coroutine.While(() => size > 0),
-			Xt.Coroutine.AwaitKey(KeyConstant.Enter)
-		);
-
-		// entity.AddComponent();
-		// entity.AddComponent();
-
-		// place text on center screen
-		// gradually increase text size
-		// finish when key is pressed, or N seconds have elapsed
-
-		// wait for N seconds again
-		// gradually decrease text size
-		// finish when key is pressed, or N seconds have elapsed
-
-		window.RemoveComponent(comp);
-		Console.WriteLine("ShowText script done");
-	}
-}
 
 class Defer
 {

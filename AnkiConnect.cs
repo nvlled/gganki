@@ -132,10 +132,8 @@ public record class CardInfo
 	{
 		return GetField("SentKanji");
 	}
-	public string? GetVocab()
-	{
-		return GetField("VocabKanji");
-	}
+	public string? GetVocab() { return GetField("VocabKanji"); }
+	public string? GetVocabDef() { return GetField("VocabDef"); }
 
 	public string? GetField(string name, string? defaultValue = null)
 	{
@@ -152,6 +150,7 @@ public record class CardInfo
 		var audio = type == ContentType.Example ? GetField("SentAudio") : GetField("VocabAudio");
 		return (text, audio);
 	}
+
 }
 
 

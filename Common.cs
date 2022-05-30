@@ -222,11 +222,18 @@ public struct Polar
 		return v;
 	}
 
+	public Vector2 ToVector()
+	{
+		var x = MathF.Cos(angle) * radius;
+		var y = MathF.Sin(angle) * radius;
+		return new Vector2(x, y);
+	}
+
 	public static Vector2 ToVector(Polar p)
 	{
 		var x = MathF.Cos(p.angle) * p.radius;
 		var y = MathF.Sin(p.angle) * p.radius;
-		return new Vector2(x, y) * p.radius;
+		return new Vector2(x, y);
 	}
 }
 
@@ -435,10 +442,25 @@ public class PartitionedList<T> where T : IPos
 
 		itemSet.Remove(item);
 	}
+
+	public void Clear()
+	{
+		items.Clear();
+		itemSet.Clear();
+	}
 }
 public class AnkiAudioPlayer
 {
 	static Dictionary<string, Love.Source> data = new Dictionary<string, Source>();
+
+	public static void Clear()
+	{
+		foreach (var sound in data.Values)
+		{
+			sound.Dispose();
+		}
+		data.Clear();
+	}
 
 	public static async void LoadCardAudios(IEnumerable<CardInfo> cards)
 	{
