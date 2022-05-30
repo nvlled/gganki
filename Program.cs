@@ -1,6 +1,7 @@
 ﻿
 
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using FFmpeg.NET;
 using Love;
 
@@ -13,11 +14,23 @@ public class Program : Scene
 
 	ScriptLoader scriptLoader;
 
+	bool debugEnabled;
+
 
 	//FileSystemWatcher watcher;
 
 	static void Main(string[] args)
 	{
+		var debug = false;
+		foreach (var arg in args)
+		{
+			if (arg == "--debug")
+			{
+				debug = true;
+				break;
+			}
+		}
+
 		Boot.Init(new BootConfig
 		{
 			WindowResizable = true,
@@ -27,11 +40,12 @@ public class Program : Scene
 			WindowX = 10,
 			WindowY = 10,
 		});
-		Boot.Run(new Program());
+		Boot.Run(new Program(debug));
 	}
 
-	public Program()
+	public Program(bool debug)
 	{
+		debugEnabled = debug;
 		state = SharedState.self;
 		state.fontAsian = Graphics.NewFont("assets/togoshi.ttf", Config.fontSize);
 		scriptLoader = new ScriptLoader(state);
@@ -58,7 +72,16 @@ public class Program : Scene
 		{
 			gameView = new GameView(deckName, state);
 			state.SetActiveView(gameView);
-			scriptLoader.StartLoad();
+
+			if (debugEnabled)
+			{
+				scriptLoader.EnableDebug();
+			}
+			else
+			{
+				scriptLoader.StartLoad();
+			}
+
 			return;
 		}
 
@@ -209,7 +232,10 @@ public class Program : Scene
 		else if (key == KeyConstant.F5)
 		{
 			scriptLoader.Reload();
-
+		}
+		else if (key == KeyConstant.F8)
+		{
+			scriptLoader.EnableDebug();
 		}
 	}
 

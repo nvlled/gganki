@@ -25,6 +25,8 @@ public class ScriptLoader
 
 	bool tryReload = false;
 	bool startLoad = false;
+	bool startDebug = false;
+	bool enableDebug = false;
 
 	Gpr gpr;
 
@@ -36,6 +38,8 @@ public class ScriptLoader
 
 	public void Reload()
 	{
+		enableDebug = false;
+
 		ClearErrors();
 		try
 		{
@@ -47,15 +51,18 @@ public class ScriptLoader
 
 			//CSScriptLib.CSScript.Evaluator.LoadFile
 			var newScript = CSScript.Evaluator.LoadFile<View>(filename, state);
-			newScript.Load();
 			lastLoad = Love.Timer.GetTime();
 			loadError = "";
 
-
 			script = newScript;
+			script.Load();
 		}
 		catch (Exception err)
 		{
+			if (enableDebug)
+			{
+				throw;
+			}
 			loadError = err.Message;
 			Console.WriteLine(err.StackTrace);
 		}
@@ -64,10 +71,21 @@ public class ScriptLoader
 	public void StartLoad()
 	{
 		startLoad = true;
+		enableDebug = false;
+		startDebug = false;
+	}
+	public void EnableDebug()
+	{
+		enabled = true;
+		enableDebug = true;
+		startDebug = true;
+		startLoad = false;
+		tryReload = false;
 	}
 
 	public void Load()
 	{
+
 		if (watcher != null)
 		{
 			enabled = !enabled;
@@ -112,7 +130,10 @@ public class ScriptLoader
 			{
 				// Note: Löve API must be invoked only from the main thread
 				// or else, some bugs will happen like text not rendering
-				tryReload = true;
+				if (!enableDebug)
+				{
+					tryReload = true;
+				}
 			}
 
 		};
@@ -125,7 +146,6 @@ public class ScriptLoader
 		watcher.Filter = "*.cs";
 		watcher.IncludeSubdirectories = true;
 		watcher.EnableRaisingEvents = true;
-
 	}
 
 	public void ClearErrors()
@@ -142,6 +162,13 @@ public class ScriptLoader
 	public void Update()
 	{
 		gpr.ResetLine();
+		if (startDebug)
+		{
+			script?.Unload();
+			script = new Script(state);
+			script.Load();
+			startDebug = false;
+		}
 		if (startLoad)
 		{
 			Load();
@@ -165,6 +192,10 @@ public class ScriptLoader
 		}
 		catch (Exception e)
 		{
+			if (enableDebug)
+			{
+				throw;
+			}
 			updateError = e.StackTrace;
 			Console.WriteLine("script update error: {0}", e.Message);
 		}
@@ -204,6 +235,10 @@ public class ScriptLoader
 			}
 			catch (Exception e)
 			{
+				if (enableDebug)
+				{
+					throw;
+				}
 				gpr.Print("draw error: " + e.StackTrace);
 				Console.WriteLine("script update error: {0}", e.StackTrace);
 			}
