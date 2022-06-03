@@ -5,6 +5,7 @@ using FFMpegCore.Enums;
 using FFMpegCore.Pipes;
 using AwaitableCoroutine;
 using Love;
+using MyNihongo.KanaDetector.Extensions;
 
 namespace gganki_love;
 
@@ -20,7 +21,7 @@ public interface IPos
 
 public class Config
 {
-	public const int fontSize = 52;
+	public const int fontSize = 57;
 	public const int fontSizeTiny = 14;
 	public const int fontSizeSmall = 18;
 	public const int fontSizeMedium = 32;
@@ -511,6 +512,26 @@ public class AnkiAudioPlayer
 		}
 	}
 
+	public static async Task PlayWait(string? embeddedFilename)
+	{
+
+		if (embeddedFilename == null) { return; }
+
+		var filename = GetSoundFilename(embeddedFilename) ?? embeddedFilename;
+
+		Love.Source? source;
+		if (data.TryGetValue(filename, out source))
+		{
+			source = source.Clone();
+			using (source)
+			{
+				var duration = source.GetDuration();
+				source.Play();
+				await Task.Delay((int)(duration * 1000));
+			}
+		}
+	}
+
 	public static void Play(string? embeddedFilename)
 	{
 		if (embeddedFilename == null) { return; }
@@ -651,26 +672,45 @@ public class ComponentRegistry
 	{
 		Action action;
 		bool isDraw;
+		bool remove = true;
 		ComponentRegistry reg;
-		public ActionDispose(Action action, ComponentRegistry reg, bool isDraw)
+		public ActionDispose(Action action, ComponentRegistry reg, bool isDraw, bool remove = true)
 		{
 			this.action = action;
 			this.reg = reg;
 			this.isDraw = isDraw;
+			this.remove = remove;
 		}
 		public void Dispose()
 		{
 			//Console.WriteLine("disposed");
-			if (isDraw)
+			if (remove)
 			{
-				reg.RemoveDraw(action);
+
+				if (isDraw)
+				{
+					reg.RemoveDraw(action);
+				}
+				else
+				{
+					reg.RemoveUpdate(action);
+				}
 			}
 			else
 			{
-				reg.RemoveUpdate(action);
+				if (isDraw)
+				{
+					reg.AddDraw(action);
+				}
+				else
+				{
+					reg.AddUpdate(action);
+				}
+
 			}
 		}
 	}
+
 	public struct CompDispose : IDisposable
 	{
 		IComponent comp;
@@ -703,16 +743,31 @@ public class ComponentRegistry
 	public IDisposable AddDraw(Action action)
 	{
 		drawFunctions.Add(action);
-		return new ActionDispose(action, this, true);
+		return new ActionDispose(action, this, true, remove: true);
 	}
 	public void RemoveDraw(Action action) { drawFunctions.Remove(action); }
 
 	public IDisposable AddUpdate(Action action)
 	{
 		updateFunctions.Add(action);
-		return new ActionDispose(action, this, false);
+		return new ActionDispose(action, this, false, remove: true);
 	}
-	public void RemoveUpdate(Action action) { updateFunctions.Remove(action); }
+	public void RemoveUpdate(Action action)
+	{
+		updateFunctions.Remove(action);
+	}
+
+	public IDisposable TemporaryRemoveUpdate(Action action)
+	{
+		updateFunctions.Remove(action);
+		return new ActionDispose(action, this, isDraw: false, remove: false);
+	}
+
+	public IDisposable TemporaryRemoveDraw(Action action)
+	{
+		drawFunctions.Remove(action);
+		return new ActionDispose(action, this, isDraw: true, remove: false);
+	}
 
 	public IEnumerable<IComponent> GetComponents() { return components; }
 
@@ -888,5 +943,102 @@ public class Corunner
 		{
 			if (!co.IsCompleted) co.Cancel();
 		}
+	}
+}
+
+public class JP
+{
+	public enum Type { None, Other, KanaOrKanji };
+	public record SplitEnty
+	{
+		public Type type { get; set; } = Type.None;
+		public string text { get; set; } = "";
+		public int index { get; set; } = 0;
+		public int kIndex { get; set; } = 0;
+	}
+	public static bool IsKanaOrKanji(char ch)
+	{
+		return ch.IsKanaOrKanji() && ch != '、' && ch != '。';
+	}
+	public static SplitEnty[] SplitText(string text)
+	{
+		text = text.Trim();
+
+		var sb = new System.Text.StringBuilder();
+		var result = new List<SplitEnty>();
+		var type = Type.Other;
+
+		var index = 0;
+		var kIndex = 0;
+		foreach (var ch in text)
+		{
+			type = IsKanaOrKanji(ch) ? Type.KanaOrKanji : Type.Other;
+			if (type == Type.KanaOrKanji)
+			{
+				if (sb.Length > 0)
+				{
+					var other = sb.ToString();
+					result.Add(new SplitEnty
+					{
+						index = index - other.Length,
+						type = Type.Other,
+						text = other,
+					});
+					sb.Clear();
+				}
+				result.Add(new SplitEnty
+				{
+					index = index,
+					kIndex = kIndex++,
+					type = Type.KanaOrKanji,
+					text = ch.ToString(),
+				});
+			}
+			else
+			{
+				sb.Append(ch);
+			}
+
+			index++;
+		}
+		if (sb.Length > 0)
+		{
+			var other = sb.ToString();
+			result.Add(new SplitEnty
+			{
+				index = index - other.Length,
+				type = Type.Other,
+				text = other,
+			});
+			sb.Clear();
+		}
+		//result.Add(new SplitEnty
+		//{
+		//	index = index,
+		//	text = sb.ToString(),
+		//	type = type,
+		//});
+
+		return result.ToArray();
+	}
+
+
+	public static bool HasJapanese(string text)
+	{
+		var jpCount = 0;
+		var romanCount = 0;
+		foreach (var ch in text)
+		{
+			if (ch.IsKanaOrKanji())
+			{
+				jpCount++;
+			}
+			else if (ch.IsKanaOrKanji())
+			{
+				romanCount++;
+
+			}
+		}
+		return jpCount >= romanCount;
 	}
 }

@@ -16,6 +16,7 @@
     <PackageReference Include="ffmpeg.nuget" Version="1.0.0" />
     <PackageReference Include="FFMpegCore" Version="4.8.0" />
     <PackageReference Include="LoveSharp" Version="11.0.51" />
+    <PackageReference Include="MyNihongo.KanaDetector" Version="1.0.1.1" />
     <PackageReference Include="xFFmpeg.NET" Version="7.1.3" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.11.0" />
     <PackageReference Include="xunit" Version="2.4.1" />
