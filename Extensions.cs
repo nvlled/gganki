@@ -5,6 +5,28 @@ using System;
 using gganki_love;
 using Love;
 using Co = AwaitableCoroutine.Coroutine;
+public static class IEnumerableXt
+{
+	public static IEnumerable<(T, int)> WithIndex<T>(this IEnumerable<T> items)
+	{
+		int i = 0;
+		foreach (var x in items)
+		{
+			yield return (x, i++);
+		}
+	}
+}
+
+public static class CoroutineXt
+{
+	public static void TryCancel(this Co coroutine)
+	{
+		if (!coroutine.IsCompleted && !coroutine.IsCanceled)
+		{
+			coroutine.Cancel();
+		}
+	}
+}
 
 public static class ListXt
 {
@@ -34,27 +56,48 @@ public static class ListXt
 
 public static class StringXt
 {
-	public static (string, string) DivideBy(this string text, string sub)
+	public static (string, string, string) DivideBy(this string text, string sub)
 	{
-		if (text == sub)
+		var end = sub.Length;
+		while (end > 0)
 		{
-			return ("", "");
-		}
-		var index = text.IndexOf(sub);
-		if (index < 0)
-		{
-			return ("", "");
-		}
+			if (text == sub)
+			{
+				return ("", text, "");
+			}
 
-		var pre = text[0..index];
-		var post = text[(index + sub.Length)..];
+			var mid = sub[0..end];
+			var index = text.IndexOf(mid);
+			if (index < 0)
+			{
+				end--;
+				continue;
+			}
+			var duplicate = text.IndexOf(mid, index + 1) >= index;
+			if (duplicate)
+			{
+				end--;
+				continue;
+			}
 
-		return (pre, post);
+			var pre = text[0..index];
+			var post = text[(index + mid.Length)..];
+
+			return (pre, mid, post);
+		}
+		return ("", text, "");
 	}
 }
 
 public static class Xt
 {
+	public static class MathF
+	{
+		public static int RandomSign()
+		{
+			return Random.Shared.Next(0, 2) == 1 ? 1 : -1;
+		}
+	}
 	public static class String
 	{
 		public static (string, string, string) Split(string text, string sub)
@@ -101,8 +144,25 @@ public static class Xt
 		}
 	}
 
+	public static class Vector4
+	{
+
+		public static Love.Vector4 FromColor(Color color)
+		{
+			return new Love.Vector4(color.Rf, color.Gf, color.Bf, color.Af);
+		}
+	}
 	public static class Vector2
 	{
+		public static Love.Vector2 RandomDir()
+		{
+			var r = System.Random.Shared;
+			return Love.Vector2.Normalize(new Love.Vector2(
+				-1 + r.NextSingle() * 2,
+				-1 + r.NextSingle() * 2
+			));
+		}
+
 		public static Love.Vector2 Random(float? w = null, float? h = null)
 		{
 			var xMax = w.GetValueOrDefault(Love.Graphics.GetWidth());

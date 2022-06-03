@@ -7,6 +7,8 @@ using System.Linq;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using AwaitableCoroutine;
+using MyNihongo.KanaDetector.Extensions;
+using Love.Misc;
 
 public class Script : View
 {
@@ -143,7 +145,41 @@ public class Wut
 
 public class WeaponEntity
 {
-	public enum State { OnHand, Throwing, Returning }
+	public enum State { OnHand, Throwing, Returning, Slash, Thrust, Spinning, Whirlwind, Barrage }
+
+	class SlashData
+	{
+		public Vector2 startDir = Vector2.UnitX;
+		public Vector2 dir = Vector2.UnitX;
+		public float radians = 0;
+		public float steps = 0;
+		public int sign;
+	}
+	class ThrustingData
+	{
+		public Vector2 dir = Vector2.UnitX;
+		public float maxSteps = 0;
+		public float steps = 0;
+		public float shift = 0;
+	}
+	class SpinningData
+	{
+		public float maxSteps = 0;
+		public float steps = 0;
+		public Vector2 dir;
+		public int sign;
+	}
+	class WhirlwindData
+	{
+		public float chargeTime = 0;
+		public float maxSteps = 0;
+		public float steps = 0;
+		public float radius = 0;
+		public float maxRadius = 0;
+        public bool charging;
+        public Color color;
+        public float colorStep;
+    }
 	class ThrowingData
 	{
 		public const float maxSteps = 25;
@@ -188,8 +224,13 @@ public class WeaponEntity
 		set { entity.dir = value; }
 	}
 
+	float lastAction = Love.Timer.GetTime();
 
 	State logicState = State.OnHand;
+	SlashData slashing = new SlashData();
+	ThrustingData thrusting = new ThrustingData();
+	SpinningData spinning = new SpinningData();
+	WhirlwindData whilrwind = new WhirlwindData();
 	ThrowingData throwing = new ThrowingData();
 	ReturningData returning = new ReturningData();
 
@@ -263,13 +304,84 @@ public class WeaponEntity
 			//RotateAt(dir);
 		}
 	}
+
+	public void Thrust()
+	{
+		if (holder == null)
+		{
+			return;
+		}
+		if (logicState != State.OnHand && logicState != State.Slash)
+		{
+			return;
+		}
+
+		logicState = State.Thrust;
+		thrusting.steps = 0;
+		thrusting.shift = 0;
+		thrusting.maxSteps = Random.Shared.Next(120, 180);
+		thrusting.dir = Vector2.Normalize(entity.pos - holder.pos);
+	}
+
+	public void Slash()
+	{
+		if (holder == null)
+		{
+			return;
+		}
+		if (logicState != State.OnHand && logicState != State.Slash)
+		{
+			return;
+		}
+
+		var v = entity.pos - holder.pos;
+		var radians = (100 + Random.Shared.Next(40)) * MathF.PI / 180;
+		logicState = State.Slash;
+		slashing.sign = Xt.MathF.RandomSign();
+		slashing.radians = radians + (90 + Random.Shared.Next(40)) * MathF.PI / 180;
+		slashing.steps = 0;
+		slashing.startDir = Vector2.Normalize(v);
+		slashing.dir = Polar.Rotate(-slashing.sign * radians, slashing.startDir);
+
+
+		var oldPos = GetHandlePos();
+		RotateAt(slashing.dir);
+		SetHandlePosition(oldPos);
+	}
+	public void Spin()
+	{
+		logicState = State.Spinning;
+		spinning.steps = 0;
+		spinning.maxSteps = 20;
+		spinning.sign = Xt.MathF.RandomSign();
+		spinning.dir = Vector2.Normalize(entity.pos - holder.pos);
+	}
+
+	// TODO: add other actions
+	// set right-click (or other button) to long-range attack
 	public void DoAction()
 	{
-		switch (logicState)
+		var now = Love.Timer.GetTime();
+		if (now - lastAction < 0.25f)
 		{
-			case State.OnHand: Throw(); break;
-			case State.Throwing: HaltThrow(); break;
+			return;
 		}
+		lastAction = now;
+
+		switch (Random.Shared.Next(1, 6))
+		{
+			case 1:
+			case 2:
+			case 3: Slash(); break;
+			case 4: Thrust(); break;
+			case 5: Spin(); break;
+		}
+
+		//switch (logicState)
+		//{
+		//	case State.OnHand: Throw(); break;
+		//	case State.Throwing: HaltThrow(); break;
+		//}
 	}
 
 	public void HaltThrow()
@@ -281,6 +393,44 @@ public class WeaponEntity
 		else if (throwing.haltElapsed > 0.2f)
 		{
 			Return();
+		}
+	}
+
+	public void ChargeWhirldwind()
+	{
+		logicState = State.Whirlwind;
+		whilrwind.charging = true;
+		whilrwind.chargeTime = 0;
+	}
+
+	public void ReleaseWhirlwind()
+	{
+		var t = MathF.Max(whilrwind.chargeTime, 6);
+		logicState = State.Whirlwind;
+		whilrwind.charging = false;
+		whilrwind.steps = t * 10;
+		whilrwind.radius = 0;
+		whilrwind.maxRadius = t * 10;
+		whilrwind.color = new Color(255, 255, 255, 255);
+		whilrwind.colorStep = 0.1f;
+	}
+
+	public void UpdateWhirlwind()
+	{
+		if (whilrwind.charging) {
+			whilrwind.color.Af -= whilrwind.colorStep;
+			if (whilrwind.color.Af <= 0)
+			{
+				whilrwind.color.Af = 0;
+				whilrwind.colorStep = -1;
+			} else if (whilrwind.color.Af >= 1)
+			{
+				whilrwind.color.Af = 1;
+				whilrwind.colorStep = 1;
+			}
+			entity.color = whilrwind.color;
+		} else {
+
 		}
 	}
 
@@ -325,6 +475,73 @@ public class WeaponEntity
 		//Graphics.Line(r.Original, r.Original + r.Direction);
 	}
 
+	public bool UpdateThrusting()
+	{
+		var step = 12;
+		thrusting.steps += step;
+		if (thrusting.steps < thrusting.maxSteps / 2)
+		{
+			thrusting.shift += step;
+		}
+		else if (thrusting.steps > thrusting.maxSteps / 2)
+		{
+			logicState = State.OnHand;
+		}
+		else
+		{
+			thrusting.shift -= step;
+		}
+		UpdateOnHand(thrusting.dir * thrusting.shift);
+		return true;
+	}
+	public bool UpdateSlashing()
+	{
+		var step = (MathF.PI / 180) * 25;
+		slashing.steps += step;
+		if (slashing.steps < slashing.radians)
+		{
+			slashing.dir = Polar.Rotate(slashing.sign * step, slashing.dir);
+		}
+		else if (slashing.steps > slashing.radians * 0.75f)
+		{
+			slashing.dir = slashing.startDir;
+			logicState = State.OnHand;
+		}
+		else
+		{
+			slashing.dir = Polar.Rotate(-slashing.sign * step / 3, slashing.dir);
+
+		}
+
+		var oldPos = GetHandlePos() + slashing.startDir * slashing.steps * 2 * -slashing.sign;
+		RotateAt(slashing.dir);
+		SetHandlePosition(oldPos);
+		UpdateOnHand();
+
+		//logicState = State.OnHand;
+		return true;
+	}
+
+	public bool UpdateSpinning()
+	{
+		spinning.steps++;
+		if (spinning.steps > spinning.maxSteps)
+		{
+			logicState = State.OnHand;
+			return false;
+		}
+
+		var oldPos = GetHandlePos();
+		entity.radianAngle += spinning.sign * 40 * MathF.PI / 180;
+		if (entity.radianAngle > MathF.PI)
+		{
+			entity.radianAngle = 0;
+		}
+		entity.pos = holder.pos + spinning.dir * entity.rect.Width * spinning.steps / spinning.maxSteps;
+
+		return false;
+	}
+
 	public bool UpdateThrowing()
 	{
 		if (throwing.steps < ThrowingData.maxSteps)
@@ -358,6 +575,7 @@ public class WeaponEntity
 		if (returning.delay >= ReturningData.maxDelay)
 		{
 			logicState = State.OnHand;
+			velocity *= 0;
 			return true;
 		}
 		if (v.Length() < 50)
@@ -383,7 +601,7 @@ public class WeaponEntity
 		return true;
 	}
 
-	public bool UpdateOnHand()
+	public bool UpdateOnHand(Vector2? shift = null)
 	{
 		if (holder is null) { return false; }
 
@@ -391,7 +609,7 @@ public class WeaponEntity
 			holder.flipX * holdOffset.X * holder.rect.Width / 2,
 			holder.flipY * holdOffset.Y * holder.rect.Height / 2
 		);
-		SetHandlePosition(holder.pos + offset);
+		SetHandlePosition(holder.pos + offset + shift.GetValueOrDefault(Vector2.Zero));
 		return true;
 	}
 
@@ -401,6 +619,9 @@ public class WeaponEntity
 		_ = logicState switch
 		{
 			State.OnHand => UpdateOnHand(),
+			State.Thrust => UpdateThrusting(),
+			State.Slash => UpdateSlashing(),
+			State.Spinning => UpdateSpinning(),
 			State.Throwing => UpdateThrowing(),
 			State.Returning => UpdateReturning(),
 			_ => false,
@@ -408,14 +629,17 @@ public class WeaponEntity
 
 		entity.Update();
 		var endPos = GetEndPos();
-		velocity += (endPos - lastEndPos);
-		velocity *= 0.5f;
+		if (logicState != State.OnHand)
+		{
+			velocity += (endPos - lastEndPos);
+			velocity *= 0.5f;
+		}
 		lastEndPos = endPos;
 	}
 
 	public bool HasHit(Monster m)
 	{
-		if (velocity.Length() < 20)
+		if (logicState == State.OnHand)
 		{
 			return false;
 		}
@@ -510,6 +734,9 @@ public class GAxis
 
 			axisX = gamepad.GetGamepadAxis(xType);
 			axisY = gamepad.GetGamepadAxis(yType);
+
+			activeDir = new Vector2(axisX, 0) + Vector2.UnitY * activeDir;
+			activeDir = new Vector2(0, axisY) + Vector2.UnitX * activeDir;
 		}
 
 		if (axisX + axisY == 0)
@@ -523,6 +750,7 @@ public class GAxis
 					//var w = Vector2.Normalize(Mouse.GetPosition() - Mouse.GetPreviousPosition());
 					axisX = w.X;
 					axisY = w.Y;
+					activeDir = w;
 				}
 			}
 
@@ -545,11 +773,10 @@ public class GAxis
 				{
 					axisX = 1;
 				}
+				activeDir = new Vector2(axisX, axisY);
 			}
 		}
 
-		activeDir = new Vector2(axisX, 0) + Vector2.UnitY * activeDir;
-		activeDir = new Vector2(0, axisY) + Vector2.UnitX * activeDir;
 
 
 		var prevPassiveDir = passiveDir;
@@ -560,6 +787,8 @@ public class GAxis
 		}
 		passiveDir.Normalize();
 
+		/*
+		*/
 		var dir = Polar.GetAngle(passiveDir) - Polar.GetAngle(prevPassiveDir);
 		if (MathF.Abs(dir) > MathF.PI / 2 && MathF.Abs(dir) < MathF.PI)
 		{
@@ -764,11 +993,16 @@ public class MonsterGroup
 
 	Entity? defaultTarget;
 	World? world;
+	public GameWithCoroutines game;
 
-	public MonsterGroup() { }
-	public MonsterGroup(World world, Entity target)
+	public MonsterGroup(GameWithCoroutines g)
 	{
-		this.world = world;
+		game = g;
+		this.world = game.world;
+	}
+
+	public MonsterGroup(GameWithCoroutines g, Entity target) : this(g)
+	{
 		defaultTarget = target;
 	}
 
@@ -940,6 +1174,20 @@ public class MonsterGroup
 		}
 		return null;
 	}
+
+	public void RemoveByText(string text)
+	{
+		//Monster? toRemove;
+		foreach (var m in monsters.Iterate())
+		{
+			if (m.text == text && m.logicState.ID != Monster.State.Dead)
+			{
+				//toRemove = m;
+				Remove(m);
+				//break;
+			}
+		}
+	}
 }
 
 /*
@@ -951,42 +1199,219 @@ void Update() {
 
 */
 
+public interface IMonsterState
+{
+	Monster.State ID { get; }
+	void Update();
+}
+public struct Attacked : IMonsterState
+{
+	public Monster.State ID { get; init; } = Monster.State.Attacked;
+	public float elapsed = 0;
+	public float numBlinks = 0;
+	public Vector2 dir = Vector2.Zero;
+	public IMonsterState? prevState = null;
+
+	public Vector2 popoverOffset = Vector2.Zero;
+	Monster monster;
+	public Attacked(Monster m) { monster = m; }
+	public void Update()
+	{
+		var m = monster;
+		if (m.logicState.ID == Monster.State.Attacked)
+		{
+			if (m.attacked.numBlinks > 1)
+			{
+				m.approaching.pause = 0;
+				//logicState = attacked.prevState ?? State.Approaching;
+				m.logicState = m.attacked.prevState ?? m.approaching;
+				m.entity.color = Color.White;
+			}
+			else if (m.attacked.elapsed == 0 || m.attacked.elapsed > .50f)
+			{
+				var entityColor = (m.attacked.numBlinks * 10) % 2 == 0 ? Color.Red : Color.White;
+				m.attacked.elapsed = 0;
+				m.attacked.numBlinks += 1.0f;
+				m.entity.color = entityColor;
+			}
+			m.pos += -m.attacked.dir * 1.5f;
+			m.attacked.elapsed += Love.Timer.GetDelta();
+			m.attacked.popoverOffset += m.attacked.dir * 0.3f; ;
+		}
+
+	}
+}
+
+public struct Approaching : IMonsterState
+{
+	public Monster.State ID { get; init; } = Monster.State.Approaching;
+	public Vector2 dir = Vector2.Zero;
+	public float pause = 0;
+
+	public Vector2 diversionPoint = Vector2.Zero;
+	public int steps = 0;
+
+	Monster monster;
+	public Approaching(Monster m) { monster = m; }
+
+	public void Update()
+	{
+		var m = monster;
+		if (m.target == null)
+		{
+			return;
+		}
+
+		if (m.approaching.pause > 0)
+		{
+			m.approaching.pause -= Love.Timer.GetDelta();
+		}
+
+		var world = m.group.game.world;
+		var targetVec = m.target.pos - m.pos;
+		if (targetVec.Length() > 500)
+		{
+			var point = m.approaching.diversionPoint;
+			if (m.approaching.steps % 200 == 0 || Vector2.Distance(point, m.pos) < 10)
+			{
+				var n = Mathf.Random(800, 1900) * Xt.MathF.RandomSign();
+				var diversionPoint = m.target.pos + Vector2.Normalize(Vector2.Rotate(targetVec, 90)) * n;
+				m.approaching.diversionPoint = world.RestrictPosition(diversionPoint);
+			}
+			m.approaching.steps++;
+			if (m.approaching.steps > 1000)
+			{
+				m.approaching.steps = 0;
+			}
+
+			m.pos += Vector2.Normalize(point - m.pos) * m.entity.speed * 1.2f;
+		}
+		else
+		{
+			if (!DivertFromCollision())
+			{
+				m.pos += Vector2.Normalize(targetVec) * m.entity.speed;
+			}
+		}
+
+
+	}
+	public bool DivertFromCollision()
+	{
+		var self = monster;
+		if (self.group == null)
+		{
+			return false;
+		}
+
+		var distanceFromTarget = Vector2.Distance(self.pos, (self.target?.pos) ?? Vector2.Zero);
+		var hasCollision = false;
+
+		if (distanceFromTarget > 900)
+		{
+			return false;
+		}
+
+		foreach (var m in self.group.GetMonstersAt(self.rect))
+		{
+			if (m == self)
+			{
+				continue;
+			}
+			if (!self.HasMonstersAround(m))
+			{
+				return false;
+			}
+
+			var v = m.pos - self.pos;
+			if (v.Length() == 0)
+			{
+				v.X = (0.1f + Random.Shared.NextSingle()) * Xt.MathF.RandomSign();
+				v.Y = (0.1f + Random.Shared.NextSingle()) * Xt.MathF.RandomSign();
+			}
+			var dir = Vector2.Normalize(v);
+			self.pos += -dir * self.entity.speed * 0.31f;
+			hasCollision = true;
+		}
+
+		return hasCollision;
+	}
+}
+
+public struct Fleeing : IMonsterState
+{
+	public Monster.State ID { get; init; } = Monster.State.Fleeing;
+	public float time = 0;
+	public Vector2 dir = Vector2.Zero;
+	Monster monster;
+	public Fleeing(Monster m) { monster = m; }
+
+	public void Update()
+	{
+		var m = monster;
+		m.fleeing.time -= Love.Timer.GetDelta();
+		m.pos += m.fleeing.dir * m.entity.speed * 1.2f;
+		if (m.fleeing.time <= 0)
+		{
+			m.logicState = m.approaching;
+			m.fleeing.time = 0;
+		}
+
+	}
+}
+public struct Dead : IMonsterState
+{
+	public Monster.State ID { get; init; } = Monster.State.Dead;
+	public float elapsed = 0;
+	Monster monster;
+	public Dead(Monster m) { monster = m; }
+
+	public void Update()
+	{
+
+	}
+}
+public struct Exploring : IMonsterState
+{
+	Monster monster;
+	public Monster.State ID { get; init; } = Monster.State.Exploring;
+	public Exploring(Monster m) { monster = m; }
+
+	Vector2 dir = Xt.Vector2.RandomDir();
+	public float steps = 0;
+	public float speed = 100;
+	public float maxSpeed = 2;
+
+	public void Update()
+	{
+		if (steps <= 0)
+		{
+			steps = Random.Shared.Next(100, 350);
+			speed = Random.Shared.NextSingle() * maxSpeed;
+			dir = Xt.Vector2.RandomDir();
+		}
+		monster.pos += dir * speed;
+		steps -= 1;
+	}
+}
+
+public struct Idle : IMonsterState
+{
+	Monster monster;
+	public Monster.State ID { get; init; } = Monster.State.Idle;
+	public Idle(Monster m) { monster = m; }
+
+	public void Update() { }
+}
+
+
 
 public class Monster : IPos
 {
 	public event Action<Monster> OnMonsterKill = (e) => { };
 	public event Action<Monster> OnMonsterHit = (e) => { };
 
-	public enum State { Exploring, Fleeing, Approaching, Attacked, Dead }
-	public struct Attacked
-	{
-		public float elapsed;
-		public float numBlinks;
-		public Vector2 dir;
-		public State? prevState;
-
-		public Vector2 popoverOffset;
-	}
-
-	public struct Approaching
-	{
-		public Vector2 dir;
-		public float pause;
-		public SortedSet<Monster> followers;
-
-		public Vector2 diversionPoint;
-		public int steps;
-	}
-	public struct Fleeing
-	{
-		public float time;
-		public Vector2 dir;
-	}
-	public struct Dead
-	{
-		public float elapsed;
-	}
-
+	public enum State { Exploring, Fleeing, Approaching, Attacked, Dead, Idle }
 	public Entity entity;
 	public Entity? target;
 	public string text;
@@ -998,11 +1423,12 @@ public class Monster : IPos
 
 	public MonsterGroup? group;
 
-	public Attacked attacked = new Attacked();
-	public Approaching approaching = new Approaching();
-	public Fleeing fleeing = new Fleeing();
-	public Dead dead = new Dead();
-	public State logicState = State.Approaching;
+	public Attacked attacked;
+	public Approaching approaching;
+	public Fleeing fleeing;
+	public Exploring exploring;
+	public Dead dead;
+	public IMonsterState logicState;
 
 	public CardInfo? card;
 
@@ -1038,6 +1464,7 @@ public class Monster : IPos
 
 		font ??= Graphics.GetFont();
 		this.textObject = Graphics.NewText(font, text);
+		InitState();
 	}
 
 	public Monster()
@@ -1045,25 +1472,31 @@ public class Monster : IPos
 		var font = Graphics.GetFont();
 		this.entity = Entity.Create(0);
 		this.textObject = Graphics.NewText(font, "");
+		InitState();
+	}
+	private void InitState()
+	{
+		attacked = new Attacked(this);
+		approaching = new Approaching(this);
+		fleeing = new Fleeing(this);
+		dead = new Dead(this);
+		exploring = new Exploring(this);
+		logicState = approaching;
 	}
 
 	public bool IsPaused()
 	{
-		return logicState != State.Approaching || approaching.pause > 0;
+		return logicState.ID != State.Approaching || approaching.pause > 0;
 	}
 
 	public void Pause(float seconds)
 	{
-		if (logicState == State.Approaching)
+		if (logicState.ID == State.Approaching)
 		{
 			approaching.pause = seconds;
 		}
 	}
 
-	int RandomSign()
-	{
-		return Random.Shared.Next(0, 2) == 1 ? 1 : -1;
-	}
 
 	public bool HasMonstersAround(Monster m)
 	{
@@ -1071,142 +1504,14 @@ public class Monster : IPos
 		return Vector2.Distance(pos, m.pos) < rect.DiagonalLength() * 2.0f;
 	}
 
-	public bool DivertFromCollision()
-	{
-		if (group == null)
-		{
-			return false;
-		}
-
-		var distanceFromTarget = Vector2.Distance(pos, (target?.pos) ?? Vector2.Zero);
-		var hasCollision = false;
-
-		if (distanceFromTarget > 900)
-		{
-			return false;
-		}
-
-		foreach (var m in group.GetMonstersAt(rect))
-		{
-			if (m == this)
-			{
-				continue;
-			}
-			if (!HasMonstersAround(m))
-			{
-				return false;
-			}
-
-			var v = m.pos - pos;
-			if (v.Length() == 0)
-			{
-				v.X = (0.1f + Random.Shared.NextSingle()) * RandomSign();
-				v.Y = (0.1f + Random.Shared.NextSingle()) * RandomSign();
-			}
-			var dir = Vector2.Normalize(v);
-			pos += -dir * entity.speed * 0.31f;
-			hasCollision = true;
-		}
-
-		return hasCollision;
-	}
-
-
-	public void UpdateFleeing()
-	{
-		fleeing.time -= Love.Timer.GetDelta();
-		pos += fleeing.dir * entity.speed * 1.2f;
-		if (fleeing.time <= 0)
-		{
-			logicState = State.Approaching;
-			fleeing.time = 0;
-		}
-	}
-
-	public void UpdateAttacked()
-	{
-		if (logicState == State.Attacked)
-		{
-			if (attacked.numBlinks > 2)
-			{
-				approaching.pause = 0;
-				logicState = attacked.prevState ?? State.Approaching;
-				entity.color = Color.White;
-			}
-			else if (attacked.elapsed == 0 || attacked.elapsed > .50f)
-			{
-				var entityColor = (attacked.numBlinks * 10) % 2 == 0 ? Color.Red : Color.White;
-				attacked.elapsed = 0;
-				attacked.numBlinks += 0.5f;
-				entity.color = entityColor;
-			}
-			pos += -attacked.dir * 1.5f;
-			attacked.elapsed += Love.Timer.GetDelta();
-			attacked.popoverOffset += attacked.dir * 0.3f; ;
-		}
-
-	}
-
-	public void UpdateApproach()
-	{
-
-		if (target == null)
-		{
-			return;
-		}
-
-		if (approaching.pause > 0)
-		{
-			approaching.pause -= Love.Timer.GetDelta();
-		}
-
-		var targetVec = target.pos - pos;
-		if (targetVec.Length() > 500)
-		{
-			var point = approaching.diversionPoint;
-			if (approaching.steps % 200 == 0 || Vector2.Distance(point, pos) < 10)
-			{
-				var n = Mathf.Random(800, 1900) * RandomSign();
-				approaching.diversionPoint = target.pos + Vector2.Normalize(Vector2.Rotate(targetVec, 90)) * n;
-			}
-			approaching.steps++;
-			if (approaching.steps > 1000)
-			{
-				approaching.steps = 0;
-			}
-
-			pos += Vector2.Normalize(point - pos) * entity.speed * 1.2f;
-		}
-		else
-		{
-			if (!DivertFromCollision())
-			{
-				pos += Vector2.Normalize(targetVec) * entity.speed;
-			}
-		}
-
-
-	}
-
 	public void Update()
 	{
 		entity.Update();
-		if (logicState == State.Approaching)
-		{
-			UpdateApproach();
-		}
-		else if (logicState == State.Attacked)
-		{
-			UpdateAttacked();
-		}
-		else if (logicState == State.Fleeing)
-		{
-			UpdateFleeing();
-		}
+		logicState.Update();
 
-		if (logicState != State.Dead && health <= 0)
+		if (logicState.ID != State.Dead && health <= 0)
 		{
-			logicState = State.Dead;
+			logicState = dead;
 			OnMonsterKill(this);
 		}
 	}
@@ -1231,7 +1536,7 @@ public class Monster : IPos
 		Graphics.Draw(textObject, x, y);
 
 		Graphics.SetColor(entity.color);
-		if (logicState != State.Dead)
+		if (logicState.ID != State.Dead)
 		{
 			var healthH = 5;
 			Graphics.SetColor(Color.Teal);
@@ -1241,7 +1546,7 @@ public class Monster : IPos
 		}
 
 
-		if (logicState == State.Attacked && damageText != null && health < 50)
+		if (logicState.ID == State.Attacked && damageText != null && health < 50)
 		{
 			var c = pos + attacked.popoverOffset;
 			Graphics.SetColor(Color.WhiteSmoke);
@@ -1260,12 +1565,12 @@ public class Monster : IPos
 	}
 	public bool CanDamage()
 	{
-		return logicState != State.Dead;
+		return logicState.ID != State.Dead;
 	}
 
 	public void Flee(float seconds = 2)
 	{
-		logicState = State.Fleeing;
+		logicState = fleeing;
 		fleeing.time += seconds;
 		if (target != null)
 		{
@@ -1276,7 +1581,7 @@ public class Monster : IPos
 
 	public void Hit(Vector2? weapon = null)
 	{
-		if (logicState == State.Attacked || logicState == State.Dead || logicState == State.Fleeing)
+		if (logicState.ID == State.Attacked || logicState.ID == State.Dead || logicState.ID == State.Fleeing)
 		{
 			return;
 		}
@@ -1317,14 +1622,14 @@ public class Monster : IPos
 				dead.elapsed = 0;
 				//logicState = State.Dead;
 				entity.color = Color.DarkKhaki;
-				entity.radianAngle = RandomSign() * MathF.PI / 4;
+				entity.radianAngle = Xt.MathF.RandomSign() * MathF.PI / 4;
 
 				return;
 			}
 		}
 
 		attacked.prevState = logicState;
-		logicState = State.Attacked;
+		logicState = attacked;
 		attacked.numBlinks = 0;
 		attacked.elapsed = 0;
 		attacked.popoverOffset = Vector2.Zero;
@@ -1356,7 +1661,7 @@ public class Monster : IPos
 
 		m.health = 100;
 		m.textObject = Graphics.NewText(textObject.GetFont(), m.text);
-		m.logicState = State.Approaching;
+		m.logicState = new Idle();
 
 		return m;
 	}
@@ -1411,10 +1716,13 @@ public class Player
 
 	public float health = 100;
 	public float damageElapse = 0;
+	public float defence = 7.5f;
 
+	GameWithCoroutines game;
 
-	public Player()
+	public Player(GameWithCoroutines g)
 	{
+		game = g;
 
 		var i = Random.Shared.Next(0, TileID.players.Length);
 		entity = Entity.Create(TileID.players[i]);
@@ -1475,7 +1783,7 @@ public class Player
 	{
 		if (health > 0)
 		{
-			health -= damage;
+			health -= damage / defence;
 			damageElapse = 1;
 		}
 	}
@@ -1497,6 +1805,9 @@ public class Player
 		entity.dir = GAxis.left.activeDir;
 		entity.FaceDirectionX(GAxis.right.passiveDir);
 		entity.Update();
+
+		var world = game.world;
+		world.RestrictPosition(entity);
 	}
 
 	public void Draw()
@@ -1536,17 +1847,19 @@ public class Player
 
 public class Camera
 {
-	public float zoom = 0.9f;
+	public float zoom = 1.10f;
 
 	public Vector2 pos;
 	public RectangleF innerRect;
 	public Font font = Graphics.NewFont(18);
+	public GameWithCoroutines game;
 
-	public Camera()
+	public Camera(GameWithCoroutines g)
 	{
+		game = g;
 		var center = SharedState.self.center;
-		var width = Graphics.GetWidth() * 0.55f;
-		var height = Graphics.GetHeight() * 0.55f;
+		var width = Graphics.GetWidth() * 0.25f;
+		var height = Graphics.GetHeight() * 0.25f;
 		var pos = center - new Vector2(width / 2, height / 2);
 		innerRect = new RectangleF(
 			pos.X,
@@ -1618,19 +1931,32 @@ public class Camera
 	{
 		font.Dispose();
 	}
+
+	public void ZoomIn()
+	{
+		zoom += 0.01f;
+		Console.WriteLine(zoom);
+	}
+
+	public void ZoomOut()
+	{
+		zoom -= 0.01f;
+		Console.WriteLine(zoom);
+	}
 }
 
 
 
 public class World
 {
-	Vector2 size = new Vector2(5000, 5000);
+	public Vector2 size = new Vector2(3000, 3000);
 	Vector2 origin = new Vector2(0, 0);
 	int tileSize = SharedState.self.worldTileSize;
 	Color gridColor = new Color(80, 80, 80, 255);
 
 	Canvas gridCanvas;
 	Player player;
+	GameWithCoroutines game;
 
 	public Vector2 Center
 	{
@@ -1643,9 +1969,10 @@ public class World
 	public float Width { get { return size.X; } }
 	public float Height { get { return size.Y; } }
 
-	public World(Player player)
+	public World(GameWithCoroutines g)
 	{
-		this.player = player;
+		game = g;
+		this.player = game.player;
 
 		gridCanvas = Graphics.NewCanvas((int)size.X, (int)size.Y);
 		Graphics.SetCanvas(gridCanvas);
@@ -1683,6 +2010,55 @@ public class World
 	{
 		gridCanvas.Dispose();
 	}
+
+	public Vector2 RestrictPosition(Vector2 pos)
+	{
+		var margin = 500;
+		var start = origin - Vector2.One * margin;
+		var end = size + Vector2.One * margin;
+
+		if (pos.X < start.X)
+		{
+			pos.X = start.X;
+		}
+		else if (pos.X > end.X)
+		{
+			pos.X = end.X;
+		}
+		if (pos.Y < start.Y)
+		{
+			pos.Y = start.Y;
+		}
+		else if (pos.Y > end.Y)
+		{
+			pos.Y = end.Y;
+		}
+		return pos;
+	}
+
+	public void RestrictPosition(Entity entity)
+	{
+		var r = entity.rect;
+		if (r.Left < origin.X)
+		{
+			r.Left = origin.X;
+		}
+		else if (r.Right > size.X)
+		{
+			r.Right = size.X;
+		}
+		if (r.Top < origin.Y)
+		{
+			r.Top = origin.Y;
+		}
+		else if (r.Bottom > size.Y)
+		{
+			r.Bottom = size.Y;
+		}
+
+		entity.pos = r.Center;
+		entity.rect = r;
+	}
 }
 
 enum WeaponState
@@ -1690,6 +2066,34 @@ enum WeaponState
 	OnHand,
 	Attacking,
 	Returning
+}
+
+public class FX
+{
+
+	public static Moonshine.Godsray swordRay = new Moonshine.Godsray();
+	public static Moonshine.Godsray godsray = new Moonshine.Godsray();
+	public static Moonshine screenEffects;
+	public static Moonshine swordEffect;
+
+	static FX()
+	{
+
+		var scanlines = new Moonshine.Scanlines();
+		//scanlines.Opacity = 0.5f;
+		//scanlines.Width = 0.8f;
+		scanlines.Thickness = 0.2f;
+
+		godsray.Density = 0.2f;
+		screenEffects = Moonshine.China(Moonshine.CRT.Default)
+			//.Next(Moonshine.CRT.Default)
+			//.Next(Moonshine.Glow.Default)
+			//.Next(scanlines)
+			;
+		godsray.Enable = false;
+
+		swordEffect = Moonshine.China(swordRay);
+	}
 }
 
 public class GameWithCoroutines : View
@@ -1743,6 +2147,7 @@ public class GameWithCoroutines : View
 		public Monster target = new Monster();
 		public int hunts;
 		public int maxHunts;
+		public TextProgress textProgress = new TextProgress();
 
 		//public GameWithCoroutines game;
 
@@ -1794,10 +2199,10 @@ public class GameWithCoroutines : View
 
 
 	SharedState state;
-	Player player;
-	Camera cam;
-	World world;
-	MonsterGroup monsterGroup;
+	public Player player;
+	public Camera cam;
+	public World world;
+	public MonsterGroup monsterGroup;
 
 	ComponentRegistry components = new ComponentRegistry();
 	Corunner runner = new Corunner();
@@ -1809,6 +2214,9 @@ public class GameWithCoroutines : View
 	public Playing playing = new Playing();
 	public Clear clear = new Clear();
 	public float elapsed = 0;
+	public List<CardInfo> allCards = new List<CardInfo>();
+	public int cardIndex = 0;
+
 
 	//public List<Monster> killedMonsters = new List<Monster>();
 
@@ -1816,12 +2224,19 @@ public class GameWithCoroutines : View
 	{
 		this.state = state;
 
-		cam = new Camera();
-		player = new Player();
-		world = new World(player);
-		monsterGroup = new MonsterGroup();
+		cam = new Camera(this);
+		player = new Player(this);
+		world = new World(this);
+		monsterGroup = new MonsterGroup(this);
+
+
+		var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
+		allCards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
+		allCards.Sort((a, b) => Random.Shared.Next(-1, 2));
+
 
 	}
+
 	public void Load()
 	{
 		StartGame();
@@ -1857,9 +2272,16 @@ public class GameWithCoroutines : View
 			{
 				text = Regex.Replace(text, @"\[.*?\]", " ");
 				text = Regex.Replace(text, @"\<.*?\>", " ");
+				text = Regex.Replace(text, @"&nbsp;", " ");
 				card.fields[field].value = text;
 			}
 		}
+	}
+	public void RemoveUnwantedText(CardInfo card)
+	{
+		RemoveUnwantedText(card, "VocabKanji");
+		RemoveUnwantedText(card, "SentKanji");
+		RemoveUnwantedText(card, "SentEng");
 	}
 
 	public List<CardInfo> CreateCards()
@@ -1887,7 +2309,6 @@ public class GameWithCoroutines : View
 		return cards;
 	}
 
-	// TODO: move to monstergroup
 	public async Coroutine<Monster> GetMonsterKill()
 	{
 		Monster? monster = null;
@@ -1912,6 +2333,11 @@ public class GameWithCoroutines : View
 		{
 			var m = await GetMonsterKill();
 			var hunted = playing.subTargets[playing.subIndex];
+			if (playing.subIndex >= playing.subTargets.Count())
+			{
+				playing.subIndex = 0;
+			}
+
 			if (m != hunted)
 			{
 				if (m.text != hunted.text)
@@ -1920,30 +2346,50 @@ public class GameWithCoroutines : View
 				}
 
 				playing.subTargets[playing.subIndex] = m;
+
 				hunted = m;
 			}
 			return hunted;
 		}
 	}
 
-	public void InitGame()
+	public void SetPlayingCard(string vocab)
 	{
-		cam = new Camera();
-		player = new Player();
-		world = new World(player);
-		cards = CreateCards();
+		var card = allCards.Where(c => c.GetVocab() == vocab).FirstOrDefault(cards[0]);
+		if (!cards.Contains(card))
+		{
+			cards.Add(card);
+		}
+		RemoveUnwantedText(card, "VocabKanji");
+		playing.card = card;
+	}
 
-
-		AnkiAudioPlayer.LoadCardAudios(cards);
+	public void InitGame(bool tryAgain = false)
+	{
+		gameState = State.Playing;
 		player.entity.pos = world.Center;
+		player.health = 100;
 		cam.CenterAt(player.pos);
 
-		playing.card = cards[0];
+		if (!tryAgain)
+		{
+
+			playing.card = allCards[cardIndex++];
+			RemoveUnwantedText(playing.card);
+			if (!cards.Contains(playing.card))
+			{
+				cards.Add(playing.card);
+			}
+			AnkiAudioPlayer.LoadCardAudios(cards);
+		}
+		//SetPlayingCard("脱ぐ");
+
+		Console.WriteLine("current card: `{0}`, {1}", playing.card.GetVocab(), playing.card.cardId);
+
+		monsterGroup.Clear();
+
 
 		//monsterGroup = MonsterGroup.CreateFromCards(cards);
-		monsterGroup = new MonsterGroup(world, player.entity);
-		monsterGroup.OnKill += OnMonsterKill;
-		monsterGroup.OnHit += OnDefaultMonsterHit;
 
 
 		/*
@@ -1969,19 +2415,33 @@ public class GameWithCoroutines : View
 
 	public async Coroutine GameoverScript()
 	{
-		InitGameover();
+		gameover.opacity = 0;
+
 		using var _1 = components.AddUpdate(UpdateGameover);
 		using var _2 = components.AddDraw(DrawGameover);
 		components.RemoveUpdate(UpdatePlayerAction);
 		components.RemoveUpdate(UpdateMonsterCollision);
+
 		await Xt.Coroutine.AwaitAnyKey();
 	}
 
 	public async Coroutine StartGameScript()
 	{
+		cam = new Camera(this);
+		player = new Player(this);
+		world = new World(this);
+		cards = CreateCards();
+
+		monsterGroup.Dispose();
+		monsterGroup = new MonsterGroup(this, player.entity);
+		monsterGroup.OnKill += OnMonsterKill;
+		monsterGroup.OnHit += OnDefaultMonsterHit;
+
+		var tryAgain = false;
 		while (true)
 		{
-			InitGame();
+			InitGame(tryAgain);
+
 			//monsterGroup.SpawnFromCards(cards);
 			//var m = monsterGroup.Iterate().First();
 			//if (m != null)
@@ -1992,26 +2452,46 @@ public class GameWithCoroutines : View
 			//}
 
 
+			components.RemoveDraw(DrawClear);
+
 			using var _1 = components.AddUpdate(UpdatePlayerAction);
 			using var _2 = components.AddUpdate(UpdateMonsterCollision);
 			using var _3 = components.AddUpdate(UpdateMonsters);
 			using var _4 = components.AddDraw(DrawInterface);
 
 			gameState = State.Playing;
-			var gameScript = StartHuntScript();
+			var startHunt = true;
+			if (!tryAgain)
+			{
+				var correct = await StartChooseAnswerScript();
+				if (correct)
+				{
+					startHunt = false;
+					gameState = State.Clear;
+				}
 
-			await Coroutine.While(() => gameState == State.Playing);
-			if (!gameScript.IsCompleted) { gameScript.Cancel(); }
+			}
+
+			if (startHunt)
+			{
+				var gameScript = StartHuntScript();
+				await Coroutine.While(() => gameState == State.Playing);
+				if (!gameScript.IsCompleted) { gameScript.Cancel(); }
+			}
+
 
 			if (gameState == State.Clear)
 			{
-				// TODO:
+				tryAgain = false;
+				components.AddDraw(DrawClear);
+				await Xt.Coroutine.AwaitAnyKey();
 			}
 			else if (gameState == State.Gameover)
 			{
-				Console.WriteLine("gameover");
 				await GameoverScript();
+				tryAgain = true;
 			}
+
 		}
 	}
 
@@ -2034,17 +2514,38 @@ public class GameWithCoroutines : View
 		Color bgColor = new Color(20, 20, 20, 200);
 		string message = "";
 		Monster? killed = null;
+		HashSet<Monster> questionMonsters = new HashSet<Monster>();
+		HashSet<Monster> highligtedMonsters = new HashSet<Monster>();
 
 		var onHit = (Monster m) =>
 		{
 			var damage = Random.Shared.Next(40, 60);
-			var filename = m.audioFilename;
-			AnkiAudioPlayer.Play(filename);
-			m.Attack(Vector2.Zero, damage);
+			if (highligtedMonsters.Contains(m))
+			{
+
+				AnkiAudioPlayer.Play(m.audioFilename);
+				m.Attack(Vector2.Zero, damage);
+			}
+			else if (questionMonsters.Contains(m))
+			{
+				if (questionMonsters.Contains(m))
+				{
+					AnkiAudioPlayer.Play(m.audioFilename);
+					foreach (var m2 in questionMonsters)
+					{
+						m2.Attack(Vector2.Zero, damage);
+					}
+				}
+			}
+			else
+			{
+				m.Attack(Vector2.Zero, damage);
+			}
 		};
 		var onKill = (Monster m) =>
 		{
 			killed = m;
+			AnkiAudioPlayer.Play(m.audioFilename);
 		};
 		var draw = () =>
 		{
@@ -2074,13 +2575,63 @@ public class GameWithCoroutines : View
 		});
 
 		var card = playing.card;
-		var choices = CreateChoices(card, 4);
-		var (pre, vocab, post) = CreateQuestion(card);
+		var choices = CreateChoices(card, 7);
+		var (pre, vocab, post, top) = CreateQuestion(card);
+		Console.WriteLine((
+			pre?.text,
+			vocab.text,
+			post?.text,
+			top?.text,
+			card.GetExample()
+		));
+
+		questionMonsters.Add(vocab);
+		highligtedMonsters.Add(vocab);
+		if (pre != null) questionMonsters.Add(pre);
+		if (post != null) questionMonsters.Add(post);
+		if (top != null) highligtedMonsters.Add(top);
+
+		vocab.defense = 2;
+		if (pre != null) pre.defense = 2;
+		if (post != null) post.defense = 2;
+		if (top != null) top.defense = 2;
+
+		foreach (var m in choices)
+		{
+			m.exploring.maxSpeed = 0.5f;
+			m.exploring.speed = 0.1f;
+			m.exploring.steps = 100;
+			m.logicState = m.exploring;
+		}
+
+		// I think I'll spend a day or two more
+		// working on the fun factor.
+		// It's not really a game if it's boring as fuck.
+		// And if it's boring, it's not really an improvement
+		// over anki.
+		// On the plus side, it's pretty fun as it is,
+		// at least it's a bit challenging.
+		// Of course, I could always add more types of games.
+		// But I should focus on the core gameplay part:
+		// the battle mechanics. 
+		// I personally like the grinding in YS games.
+		// Woah, it's already friday, I thought it's still wednesday.
+		// I guess I'll spend the weekend playing Ys again,
+		// to get a good feel for the combat mechanics.
+
+		// TODO: accumulate SP to use special attacks
+		// TODO: pickables (health, power-ups, slowdown)
+
+		// TODO: update anki card factor on clear
+		// TODO: skirmish
+
+		// TODO: turn-based mode: monster only move when the player moves
+		// TODO: general codebase clean up
+
+		// TODO: clean up interface, create release build
+		// TODO: start actual day-to-day testing
 
 
-
-		// TODO: add wandering monster state
-		// TODO: flee choice monsters when hit
 
 		// TODO: in-game zoom in/out
 		// set camera on question
@@ -2088,16 +2639,16 @@ public class GameWithCoroutines : View
 		// await camera.panTo()
 		// await camera.zoomIn()
 		// await camera.zoomOut()
+		Console.WriteLine(card.GetExample() ?? card.GetVocab());
 
 		await Coroutine.While(() => killed == null);
-		Console.WriteLine(killed.text);
-
 
 		var correct = killed.text == playing.card.GetField("VocabDef");
 		if (correct)
 		{
 			message = "/ okay";
 			messageColor = Color.Green;
+			// TODO: await Play to finish
 		}
 		else
 		{
@@ -2105,7 +2656,10 @@ public class GameWithCoroutines : View
 			messageColor = Color.Red;
 		}
 
-		await Xt.Coroutine.Sleep(2);
+		var audio = card.GetField("SentAudio") ?? card.GetField("VocabAudio");
+		await Coroutine.AwaitTask(AnkiAudioPlayer.PlayWait(audio));
+		await Xt.Coroutine.Sleep(1);
+
 		return correct;
 	}
 	List<Monster> CreateChoices(CardInfo card, int count = 4)
@@ -2131,9 +2685,10 @@ public class GameWithCoroutines : View
 		var angleStep = (360 / choices.Count()) * MathF.PI / 180;
 		var d = player.entity.rect.DiagonalLength() * 2.5f;
 		var polar = new Polar(35, d);
+		var pos = player.pos + -player.entity.rect.DiagonalLength() * 4 * Vector2.UnitY;
 		foreach (var m in choices)
 		{
-			m.pos = player.pos + polar.ToVector();
+			m.pos = pos + polar.ToVector();
 			m.target = null;
 			polar.angle += angleStep;
 		}
@@ -2141,26 +2696,48 @@ public class GameWithCoroutines : View
 		return choices;
 	}
 
-	(Monster?, Monster, Monster?) CreateQuestion(CardInfo card)
+	(Monster?, Monster, Monster?, Monster?) CreateQuestion(CardInfo card)
 	{
 		var vocab = card.GetVocab() ?? "";
 		var example = card.GetExample() ?? "";
 
+		var qpos = player.pos + Vector2.UnitY * player.entity.rect.DiagonalLength() * 1.5f;
 		var mid = monsterGroup.SpawnMonster(vocab);
+		mid.audioFilename = card.GetField("VocabAudio");
+		mid.pos = qpos;
+		mid.target = null;
+		mid.textColor = Color.Yellow;
+
 		if (!card.HasExample())
 		{
-			return (null, mid, null);
+			return (null, mid, null, null);
 		}
 
-		var (a, b) = example.DivideBy(vocab);
+
+		var (a, v, b) = example.DivideBy(vocab);
+		Console.WriteLine((">", a, v, b));
+
+		Monster? bottom = null;
+
+		if (vocab != v)
+		{
+			monsterGroup.Remove(mid);
+			mid = monsterGroup.SpawnMonster(v, mid.entity.tileID);
+			mid.audioFilename = card.GetField("VocabAudio");
+			mid.pos = qpos;
+			mid.target = null;
+			mid.textColor = Color.Yellow;
+
+			bottom = monsterGroup.SpawnMonster(vocab);
+		}
+
 		var pre = string.IsNullOrEmpty(a.Trim()) ? null : monsterGroup.SpawnMonster(a);
-		var post = string.IsNullOrEmpty(a.Trim()) ? null : monsterGroup.SpawnMonster(b);
+		var post = string.IsNullOrEmpty(b.Trim()) ? null : monsterGroup.SpawnMonster(b);
 
 		if (pre != null) { pre.audioFilename = card.GetField("SentAudio"); }
 		if (post != null) { post.audioFilename = card.GetField("SentAudio"); }
-		mid.audioFilename = card.GetField("VocabAudio");
+		if (bottom != null) { bottom.audioFilename = card.GetField("VocabAudio"); }
 
-		var qpos = player.pos + Vector2.UnitY * -player.entity.rect.DiagonalLength() * 4.5f;
 		var fontAsian = SharedState.self.fontAsian;
 		if (pre != null)
 		{
@@ -2168,9 +2745,6 @@ public class GameWithCoroutines : View
 			pre.target = null;
 		}
 
-		mid.pos = qpos;
-		mid.target = null;
-		mid.textColor = Color.Yellow;
 
 		if (post != null)
 		{
@@ -2178,28 +2752,19 @@ public class GameWithCoroutines : View
 			post.target = null;
 		}
 
+		if (bottom != null)
+		{
+			bottom.pos = qpos + Vector2.UnitY * fontAsian.GetHeight() * 2;
+			bottom.target = null;
+			bottom.entity.color = Color.Gold;
+		}
 
-		return (pre, mid, post);
+
+		return (pre, mid, post, bottom);
 	}
 
 	public async Coroutine StartHuntScript()
 	{
-		var correct = await StartChooseAnswerScript();
-
-		if (correct)
-		{
-			Console.WriteLine("TODO");
-			await Xt.Coroutine.Abyss();
-			return;
-		}
-
-		// TODO: await StartSelectVocabDef();
-		// Shows Example sentence with Vocab highligted (like in anki)
-		// monsters are lined up, semi-moving
-		// choose correct VocabDef
-		// if correct, skip to next card
-		// if wrong, show complete example translation too
-		// then proceed
 
 		ClearSubTargets();
 		monsterGroup.Clear();
@@ -2207,29 +2772,79 @@ public class GameWithCoroutines : View
 		components.AddDraw(DrawInterface);
 
 		var text = playing.card.GetVocab() ?? "";
-		var target = monsterGroup.GetRandom();
-		playing.target = target;
+		foreach (var m in monsterGroup.Iterate())
+		{
+			//if (m.card.HasExample())
+			//{
+			//	playing.target = m;
+			//	playing.card = m.card;
+			//}
+			if (m.card == playing.card)
+			{
+				playing.target = m;
+				break;
+			}
+		}
+		var target = playing.target;
 
 		await ReadyGameScript();
 
 		await StartVocabScript();
 
-		// TODO: pause show message here
-
 		if (target.text.Length > 1)
 		{
 			await StartVocabPartsScript();
+			await MergeSubTargets(player.pos);
 		}
 
-		// TODO: animation, merge back monsters back to last kill
 
 		if (playing.card.HasExample())
 		{
-			// TODO:
 			await StartExampleScript();
 			await StartExamplePartsScript();
 		}
+		await MergeSubTargets(player.pos);
+		gameState = State.Clear;
+
+		//Console.WriteLine("hanging up");
+		//await Xt.Coroutine.Abyss();
 	}
+	public async Coroutine MergeSubTargets(Vector2 mergePos)
+	{
+		var monsters = playing.subTargets;
+		if (monsters.Count() == 0)
+		{
+			return;
+		}
+		//components.RemoveUpdate(UpdateMonsters);
+		//var mergePos = monsters[^1];
+		var done = false;
+		using var _ = components.AddUpdate(() =>
+		{
+			var doneCount = 0;
+			foreach (var m in monsters)
+			{
+				var v = mergePos - m.pos;
+				if (v.Length() <= 10)
+				{
+					doneCount++;
+				}
+				if (v.Length() == 0)
+				{
+					v = Xt.Vector2.RandomDir();
+				}
+				m.pos += Vector2.Normalize(v) * 10;
+			}
+			if (doneCount == monsters.Count())
+			{
+				done = true;
+			}
+		});
+
+		await Coroutine.While(() => !done);
+		await Xt.Coroutine.Sleep(1f);
+	}
+
 	public async Coroutine StartVocabPartsScript()
 	{
 		playing.state = HuntState.VocabParts;
@@ -2239,25 +2854,36 @@ public class GameWithCoroutines : View
 		if (playing.subTargets.Count() > 0)
 		{
 			pos = playing.subTargets[^1].pos;
-			Console.WriteLine(pos);
 		}
 
+
+		monsterGroup.Remove(target);
+
 		ClearSubTargets();
-		playing.subTargets.AddRange(SplitMonsterBy(target, "VocabKanji"));
-		playing.maxHunts = 1;
+		AddSubTargetsBy(target, "VocabKanji");
+		playing.textProgress.SetText(target.text);
+		playing.maxHunts = 2;
 
 		foreach (var m in playing.subTargets)
 		{
 			m.pos = pos;
 		}
 
+		monsterGroup.OnHit += OnTargetHit;
+		monsterGroup.OnHit -= OnDefaultMonsterHit;
+		using var _ = Defer.Run(() =>
+		{
+			monsterGroup.OnHit += OnDefaultMonsterHit;
+			monsterGroup.OnHit -= OnTargetHit;
+		});
+
 		while (true)
 		{
 			while (playing.subIndex < playing.subTargets.Count())
 			{
 				var hunted = await GetHuntedKill();
+				playing.textProgress.NextTextItem();
 				playing.subIndex++;
-				// TODO: wait for weapon to return first, player.OnWeaponBack or something
 			}
 			playing.subIndex = 0;
 			playing.hunts++;
@@ -2266,23 +2892,70 @@ public class GameWithCoroutines : View
 				break;
 			}
 			playing.subTargets.Clear();
-			playing.subTargets.AddRange(SplitMonsterBy(target, "VocabKanji"));
+			AddSubTargetsBy(target, "VocabKanji");
 		}
 	}
-	public async Coroutine StartExampleScript() { }
-	public async Coroutine StartExamplePartsScript() { }
+	public async Coroutine StartExampleScript()
+	{
+		Console.WriteLine("Start example script");
+
+		ClearSubTargets();
+		AddExampleMonster(playing.target);
+		playing.textProgress.SetWholeText(playing.card.GetExample() ?? "");
+
+		while (true)
+		{
+			var hunted = await GetHuntedKill();
+			playing.hunts++;
+			if (playing.hunts >= playing.maxHunts)
+			{
+				break;
+			}
+
+			playing.subTargets.Clear();
+			AddExampleMonster(playing.target);
+		}
+	}
+	public async Coroutine StartExamplePartsScript()
+	{
+		Console.WriteLine("Start example parts script: {0}::{1}", playing.card.cardId, playing.card.GetExample());
+
+		ClearSubTargets();
+		AddSubTargetsBy(playing.target, "SentKanji");
+		playing.textProgress.SetText(playing.card.GetExample() ?? "");
+
+		monsterGroup.OnHit += OnTargetHit;
+		monsterGroup.OnHit -= OnDefaultMonsterHit;
+		using var _ = Defer.Run(() =>
+		{
+			monsterGroup.OnHit += OnDefaultMonsterHit;
+			monsterGroup.OnHit -= OnTargetHit;
+		});
+
+		while (playing.subIndex < playing.subTargets.Count())
+		{
+			var hunted = await GetHuntedKill();
+			playing.textProgress.NextTextItem();
+			playing.subIndex++;
+
+			//playing.subTargets.Clear();
+			//AddExampleMonster(playing.target);
+		}
+
+	}
 
 	public async Coroutine StartVocabScript()
 	{
 		playing.state = HuntState.Vocab;
 		var target = playing.target;
 		var skipVocabParts = target.text.Length <= 1;
-
+		playing.textProgress.SetWholeText(target.text);
 		playing.subTargets.Add(target);
+		playing.maxHunts = 2;
 
 		if (skipVocabParts)
 		{
-			playing.maxHunts += 2;
+			playing.maxHunts += 1;
 		}
 		if (!playing.card.HasExample())
 		{
@@ -2339,21 +3012,19 @@ public class GameWithCoroutines : View
 			//Love.Graphics.Printf(vocab, center.X - w / 2, center.Y, w, AlignMode.Center);
 		};
 
-		using var _ = components.AddComponent(scriptFn);
-		//using var cleanup = Defer.Run(() =>
-		//{
-		//	Console.WriteLine("cleanup");
-		//	components.RemoveComponent(scriptFn);
-		//});
+		using var _1 = components.AddComponent(scriptFn);
+		using var _2 = components.TemporaryRemoveUpdate(UpdateMonsters);
+
+		AnkiAudioPlayer.Play(card.GetField("VocabAudio"));
 
 		while (countdown > 0)
 		{
 			countdown--;
-			await Xt.Coroutine.Sleep(0.5f);
+			await Xt.Coroutine.Sleep(1.0f);
 		}
 	}
 
-	public Monster CreateExampleMonster(Monster m)
+	public void AddExampleMonster(Monster m)
 	{
 		var font = SharedState.self.fontAsian;
 		var text = m.card?.GetField("SentKanji") ?? m.text;
@@ -2366,36 +3037,47 @@ public class GameWithCoroutines : View
 		newMonster.pos = m.pos;
 		newMonster.card = m.card;
 		newMonster.entity.scale = 5;
-		newMonster.defense = 5;
+		newMonster.defense = 3;
 		newMonster.Flee(3);
 
-		return newMonster;
+		playing.textProgress.SetText(text);
+		playing.subTargets.Add(newMonster);
+		monsterGroup.Add(newMonster);
 	}
 
-	public Monster[] SplitMonsterBy(Monster m, string fieldName)
+	public void AddSubTargetsBy(Monster m, string fieldName)
 	{
 		var text = m.card?.GetField(fieldName) ?? m.text;
 		var subMonsters = new List<Monster>();
 		var font = SharedState.self.fontAsian;
 		var audioFilename = m.card?.GetField(fieldName == "SentKanji" ? "SentAudio" : "VocabAudio") ?? m.text;
-		foreach (var ch in text)
+		var subTexts = JP.SplitText(text);
+
+		playing.subIndex = 0;
+		playing.textProgress.SetText(text);
+
+		foreach (var e in subTexts)
 		{
-			if (char.IsWhiteSpace(ch))
+			monsterGroup.RemoveByText(e.text);
+		}
+
+		foreach (var e in subTexts)
+		{
+			if (e.type != JP.Type.KanaOrKanji)
 			{
 				continue;
 			}
-			Console.WriteLine("> {0}", ch);
-			var newMonster = monsterGroup.SpawnMonster(ch.ToString());
+			var newMonster = monsterGroup.SpawnMonster(e.text);
 			newMonster.pos = m.pos;
 			newMonster.target = m.target;
 			newMonster.card = m.card;
 			newMonster.audioFilename = audioFilename;
-			newMonster.defense = 0.3f;
+			newMonster.defense = 0.5f;
 			newMonster.Flee(3);
 
 			subMonsters.Add(newMonster);
 		}
-		return subMonsters.ToArray();
+		playing.subTargets = subMonsters;
 	}
 
 	/*
@@ -2431,32 +3113,25 @@ public class GameWithCoroutines : View
 
 	public void Draw()
 	{
+		FX.screenEffects.Draw(() =>
+		{
+			cam.StartDraw();
+			{
+				world.Draw();
+				player.Draw();
+				monsterGroup.Draw();
+				DrawTargets();
+			}
+			cam.EndDraw();
 
-		cam.StartDraw();
-		{
-			world.Draw();
-			player.Draw();
-			monsterGroup.Draw();
-			DrawTargets();
-		}
-		cam.EndDraw();
+			components.Draw();
 
-		components.Draw();
+			if (Keyboard.IsDown(KeyConstant.Tab))
+			{
+				DrawClear();
+			}
 
-		/*
-		if (gameState == State.Playing)
-		{
-			DrawInterface();
-		}
-		else if (gameState == State.Gameover)
-		{
-			DrawGameover();
-		}
-		else if (gameState == State.Clear)
-		{
-			DrawClear();
-		}
-		*/
+		});
 
 	}
 
@@ -2480,6 +3155,7 @@ public class GameWithCoroutines : View
 
 
 		{
+			/*
 			var i = 0;
 			var coloredText = new List<ColoredString>();
 			foreach (var mon in playing.subTargets)
@@ -2490,26 +3166,29 @@ public class GameWithCoroutines : View
 				i++;
 				coloredText.Add(new ColoredString(mon.text, c));
 			}
+			*/
 
-			var text = new ColoredStringArray(coloredText.ToArray());
-			var font = SharedState.self.fontAsian;
-			var pos = new Vector2(0, Graphics.GetHeight() - font.GetHeight() * 1.2f);
-			Graphics.SetFont(SharedState.self.fontAsian);
-			Graphics.SetColor(Color.White);
-			Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth(), AlignMode.Center);
+			if ((playing?.target?.text?.Count() ?? 0) > 0)
+			{
+				playing.textProgress.Draw();
 
-			font = SharedState.self.fontMedium;
-			Graphics.SetFont(font);
-			Graphics.Printf(
-				string.Format("{0}/{1}", playing.hunts, playing.maxHunts),
-				pos.X, pos.Y - font.GetHeight(), Graphics.GetWidth(), AlignMode.Center
-			);
+				if (playing.maxHunts > 1)
+				{
+					var font = SharedState.self.fontMedium;
+					var pos = playing.textProgress.pos;
+					Graphics.SetFont(font);
+					Graphics.Printf(
+						string.Format("{0}/{1}", playing.hunts, playing.maxHunts),
+						pos.X, pos.Y - font.GetHeight(), Graphics.GetWidth(), AlignMode.Center
+					);
+				}
+			}
 		}
 
 		{
 			var font = SharedState.self.fontMedium;
 			var pos = new Vector2(Graphics.GetWidth() / 2, font.GetHeight() / 2);
-			var card = playing.target.card;
+			var card = playing.card;
 			var s = playing.state;
 			var text = s == HuntState.VocabParts || (playing.hunts >= 2 && s == HuntState.Vocab)
 				? card?.GetField("VocabDef")
@@ -2523,13 +3202,10 @@ public class GameWithCoroutines : View
 		}
 	}
 
-	public void UpdateClear()
-	{
-		clear.gpr.ResetLine();
-	}
 	public void DrawClear()
 	{
-		var card = playing.target.card;
+		clear.gpr.ResetLine();
+		var card = playing.card;
 
 		Graphics.SetColor(clear.bgColor);
 		Graphics.Rectangle(DrawMode.Fill, clear.rect);
@@ -2559,10 +3235,6 @@ public class GameWithCoroutines : View
 	}
 
 
-	public void InitGameover()
-	{
-		gameover.opacity += 0;
-	}
 	public void UpdateGameover()
 	{
 		if (gameover.opacity < 1)
@@ -2592,9 +3264,31 @@ public class GameWithCoroutines : View
 		}
 	}
 
-
 	public void OnMonsterKill(Monster m)
 	{
+	}
+
+	public void OnTargetHit(Monster m)
+	{
+		var canAttack = true;
+		var isTarget = false;
+		foreach (var (t, i) in playing.subTargets.WithIndex())
+		{
+			if (t.text == m.text)
+			{
+				canAttack = i == playing.subIndex;
+				isTarget = true;
+				break;
+			}
+		}
+
+		var damage = !canAttack ? 0
+			   : !isTarget
+			   ? Random.Shared.Next(20, 30)
+			   : Random.Shared.Next(30, 60);
+
+		m.Attack(player.sword, damage);
+		AnkiAudioPlayer.Play(m.audioFilename);
 	}
 
 	public void OnDefaultMonsterHit(Monster m)
@@ -2754,20 +3448,6 @@ public class GameWithCoroutines : View
 			if (hit && sword.enabled && m.IsAlive())
 			{
 				m.Hit(sword.pos);
-
-				/*
-				var isTarget = m.text == targetMonster?.text;
-				var damage = !isTarget ? Random.Shared.Next(20, 30) : Random.Shared.Next(30, 60);
-				if (isTarget)
-				{
-					Console.WriteLine("damage: {0}", damage);
-				}
-				m.Hit(sword.pos, damage);
-
-				// TODO: move to on hit
-				var filename = m.audioFilename;
-				AnkiAudioPlayer.Play(filename);
-				*/
 			}
 		}
 
@@ -2775,7 +3455,7 @@ public class GameWithCoroutines : View
 		{
 			if (player.entity.CollidesWith(m.entity) && m.CanDamage())
 			{
-				player.Hit();
+				player.Hit(player.entity.scale / m.entity.scale);
 			}
 		}
 
@@ -2788,6 +3468,16 @@ public class GameWithCoroutines : View
 		monsterGroup.Update();
 	}
 
+	Coroutine coKillSubTargets;
+	public async Coroutine KillSubTargets()
+	{
+		foreach (var m in playing.subTargets)
+		{
+			m.Attack(null, 100);
+			await Xt.Coroutine.Sleep(0.55f);
+		}
+	}
+
 	public void Update()
 	{
 		elapsed += Love.Timer.GetDelta();
@@ -2795,8 +3485,26 @@ public class GameWithCoroutines : View
 		cam.Update();
 		cam.RestrictWithin(player.pos);
 
-		components.Update();
-		runner.Update();
+		if (!Keyboard.IsDown(KeyConstant.Tab))
+		{
+			components.Update();
+			runner.Update();
+		}
+
+		if (Keyboard.IsPressed(KeyConstant.F3))
+		{
+			//coKillSubTargets?.TryCancel();
+			coKillSubTargets = runner.Create(KillSubTargets);
+		}
+		if (Keyboard.IsDown(KeyConstant.Equals))
+		{
+			cam.ZoomIn();
+		}
+		if (Keyboard.IsDown(KeyConstant.Minus))
+		{
+
+			cam.ZoomOut();
+		}
 
 		/*
 		if (gameState == State.Playing)
@@ -3682,12 +4390,92 @@ class Defer
 	}
 }
 
-public class JP
+
+public class TextProgress
 {
-	public static bool HasJapanese(string text)
+	public Vector2 pos = Vector2.Zero;
+	Vector4 doneColor = Xt.Vector4.FromColor(Color.Gray);
+	Vector4 activeColor = Xt.Vector4.FromColor(Color.LightGreen);
+	Vector4 nextColor = Xt.Vector4.FromColor(Color.White);
+
+	int index;
+	ColoredStringArray coloredText = new ColoredStringArray();
+	JP.Type[] types = new JP.Type[0];
+	Font font = Graphics.GetFont();
+
+	public void SetText(string text)
 	{
-		return true;
-		// TODO: 
-		//return Regex.IsMatch(text, @"[一-龯]");
+		var splittedText = JP.SplitText(text);
+		var types = new JP.Type[splittedText.Length];
+		var texts = new ColoredString[splittedText.Length];
+
+		foreach (var (e, i) in splittedText.WithIndex())
+		{
+			types[i] = e.type;
+			texts[i] = new ColoredString(e.text, nextColor);
+		}
+
+		var state = SharedState.self;
+		this.coloredText = new ColoredStringArray(texts);
+		this.types = types;
+		this.font = JP.HasJapanese(text) ? state.fontAsian : state.fontRegular;
+		this.pos = new Vector2(0, Graphics.GetHeight() - font.GetHeight() * 1.2f);
+
+		index = -1;
+		NextTextItem();
 	}
+	public void SetWholeText(string text)
+	{
+		var state = SharedState.self;
+		this.coloredText = new ColoredStringArray(new ColoredString(text, activeColor));
+		this.types = new[] { JP.Type.KanaOrKanji };
+		this.font = JP.HasJapanese(text) ? state.fontAsian : state.fontRegular;
+		this.pos = new Vector2(0, Graphics.GetHeight() - font.GetHeight() * 1.2f);
+
+		index = -1;
+		NextTextItem();
+	}
+
+	public void NextTextItem()
+	{
+		if (types.Length == 0 || index >= types.Length)
+		{
+			return;
+		}
+
+		while (true)
+		{
+			index++;
+			if (index >= types.Length)
+			{
+				break;
+			}
+			if (types[index] == JP.Type.KanaOrKanji)
+			{
+				break;
+			}
+		}
+
+		if (index < types.Length)
+		{
+			coloredText.colors[index] = activeColor;
+		}
+
+		for (var i = 0; i < index; i++)
+		{
+			coloredText.colors[i] = doneColor;
+		}
+	}
+
+	public void Draw()
+	{
+		if (types.Length == 0)
+		{
+			return;
+		}
+		Graphics.SetFont(font);
+		Graphics.SetColor(Color.White);
+		Graphics.Printf(coloredText, pos.X, pos.Y, Graphics.GetWidth(), AlignMode.Center);
+	}
+
 }

@@ -93,4 +93,16 @@ public class Test
 		var source = await AudioManager.LoadAudio(filename);
 		//source.Play();
 	}
+
+	[Fact]
+	public async void TestJPSplit()
+	{
+		var s = "aa毎bb日h、commaジョギンThe lazy brown fox fell over a hole.グをしています。 test";
+		Console.WriteLine("s={0}", s);
+		Console.WriteLine("wut {0}", JP.SplitText(s).ToArray().Length);
+		foreach (var entry in JP.SplitText(s))
+		{
+			Console.WriteLine("> {0} | {1},{2}", entry.text, entry.type, entry.kIndex);
+		}
+	}
 }
