@@ -4,6 +4,7 @@ using Love;
 using gganki_love;
 using Xunit;
 using AwaitableCoroutine;
+using System.Threading;
 
 public class Test
 {
@@ -129,7 +130,7 @@ public class Test
         await ctrl.Abyss();
     }
 
-    [Fact]
+    //[Fact]
     public void TestCoroutine()
     {
         var runner = new CoroutineRunner();
@@ -159,4 +160,41 @@ public class Test
             Thread.Sleep(250);
         }
     }
+
+    [Fact]
+    public void TestAwaitable()
+    {
+        var runner = new CoroutineRunner();
+        var co = runner.Create(async () =>
+        {
+            try
+            {
+
+                await Fn();
+            }
+            finally
+            {
+                Console.WriteLine("finally A");
+            }
+        });
+
+        while (!co.IsCompleted)
+        {
+            runner.Update();
+        }
+    }
+
+    public async Coroutine Fn()
+    {
+        try
+        {
+            await Coroutine.DelayCount(100);
+            throw new Exception();
+        }
+        finally
+        {
+            Console.WriteLine("finally B");
+        }
+    }
+
 }

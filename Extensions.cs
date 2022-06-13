@@ -1,8 +1,6 @@
 
 namespace gganki_love;
 
-using System;
-using gganki_love;
 using Love;
 using Co = AwaitableCoroutine.Coroutine;
 public static class IEnumerableXt
@@ -21,10 +19,27 @@ public static class CoroutineXt
 {
     public static void TryCancel(this Co coroutine)
     {
-        if (!coroutine.IsCompleted && !coroutine.IsCanceled)
+        if (!coroutine.IsCompleted)
         {
             coroutine.Cancel();
         }
+    }
+}
+public static class CollectionXt
+{
+    public static T? GetRandom<T>(this IList<T> list)
+    {
+        if (list.Count() == 0) return default(T);
+        for (var n = 0; n < list.Count() / 2; n++)
+        {
+            var i = Random.Shared.Next(0, list.Count());
+            var item = list[i];
+            if (item != null)
+            {
+                return item;
+            }
+        }
+        return default(T);
     }
 }
 
@@ -228,7 +243,7 @@ public static class Xt
             {
                 KeyHandler.OnKeyPress -= keyHandler;
                 GamepadHandler.OnPress -= gpadHandler;
-            });
+            }, nameof(AwaitKey));
 
             await Co.While(() => !done);
         }

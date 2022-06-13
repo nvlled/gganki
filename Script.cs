@@ -1039,14 +1039,135 @@ public enum CardTextType
     Example
 }
 
+
+public interface IEntity : IPos
+{
+    public Entity entity { get; set; }
+    public new Vector2 pos { get { return entity.pos; } set { entity.pos = value; } }
+    public float scale { get { return entity.scale; } set { entity.scale = value; } }
+    public float radianAngle { get { return entity.radianAngle; } set { entity.radianAngle = value; } }
+    public RectangleF rect { get { return entity.rect; } }
+
+    public void Update() { entity.Update(); }
+    public void Draw() { entity.Draw(); }
+}
+
+public class Consumable : IEntity
+{
+    public Entity entity { get; set; }
+    public Vector2 pos { get { return entity.pos; } set { entity.pos = value; } }
+
+    public float healthGain = 0;
+
+    public Consumable(int tileID)
+    {
+        entity = Entity.Create(tileID);
+        healthGain = Random.Shared.Next(10, 30);
+    }
+
+    public static Consumable CreateRandom()
+    {
+        return new Consumable(TileID.foods.GetRandom());
+    }
+}
+
+public class ItemGroup
+{
+    public event Action<IEntity> OnPickup = (item) => { };
+
+    PartitionedList<IEntity> foods = new PartitionedList<IEntity>(SharedState.self.worldTileSize);
+
+    World? world;
+    public GameWithCoroutines game;
+
+    public ItemGroup(GameWithCoroutines g)
+    {
+        game = g;
+        this.world = game.world;
+    }
+
+
+    public IEntity SpawnMonster(string text, int? tileIDArg = null)
+    {
+        return Consumable.CreateRandom();
+    }
+
+
+    //public Monster SpawnMonster(CardInfo card, CardInfo.ContentType type)
+    //{
+    //	var (text, audio) = card.GetContents(type);
+    //	var font = SharedState.self.fontAsian;
+    //	var mon = new Monster(TileID.RandomMonsterID(), text ?? "", font);
+
+    //	mon.OnMonsterKill += OnMonsterKill;
+    //	mon.group = this;
+    //	mon.audioFilename = audio ?? "";
+    //	mon.card = card;
+    //	mon.pos = Xt.Vector2.Random();
+    //	//mon.OnMonsterHit += OnMonsterHit;// TODO
+
+    //	return mon;
+    //}
+
+    public void Clear()
+    {
+        foods.Clear();
+    }
+
+
+    public IEnumerable<IEntity> Iterate()
+    {
+        return foods.Iterate();
+    }
+
+    public IEnumerable<IEntity> GetItemsAt(RectangleF r)
+    {
+        return foods.GetItemsAt(
+            new Vector2(r.Left, r.Top),
+            new Vector2(r.Left, r.Bottom),
+            new Vector2(r.Right, r.Top),
+            new Vector2(r.Right, r.Bottom)
+        );
+    }
+
+    public IEnumerable<IEntity> GetItemsAt(params Vector2[] pos)
+    {
+        return foods.GetItemsAt(pos);
+    }
+
+    public void Update()
+    {
+        foreach (var item in foods.Iterate())
+        {
+            item.Update();
+        }
+
+    }
+
+    public void Draw()
+    {
+        foreach (var item in foods.Iterate())
+        {
+            item.Draw();
+        }
+    }
+
+    public void Dispose()
+    {
+        foods.Dispose();
+    }
+
+    public void Remove(IEntity item)
+    {
+        foods.Remove(item);
+    }
+}
+
 public class MonsterGroup
 {
     public event Action<Monster> OnKill = (m) => { };
     public event Action<Monster> OnHit = (m) => { };
 
-
-    HashSet<Monster> killedMonsters = new HashSet<Monster>();
-    HashSet<Monster> hitMonsters = new HashSet<Monster>();
 
     PartitionedList<Monster> monsters = new PartitionedList<Monster>(SharedState.self.worldTileSize);
 
@@ -1067,13 +1188,12 @@ public class MonsterGroup
 
     private void OnMonsterKill(Monster m)
     {
-        killedMonsters.Add(m);
-        // TODO: or Frame.RunEnd(() => OnKill(m));
+        OnKill(m);
     }
 
     private void OnMonsterHit(Monster m)
     {
-        hitMonsters.Add(m);
+        OnHit(m);
     }
 
     public Monster SpawnMonster(string text, int? tileIDArg = null)
@@ -1185,25 +1305,6 @@ public class MonsterGroup
             m.Update();
             monsters.Move(m);
         }
-
-        if (killedMonsters.Count() > 0)
-        {
-            foreach (var m in killedMonsters)
-            {
-                OnKill(m);
-                killedMonsters.Remove(m);
-            }
-            //killedMonsters.Clear();
-        }
-        if (hitMonsters.Count() > 0)
-        {
-            foreach (var m in hitMonsters)
-            {
-                OnHit(m);
-                hitMonsters.Remove(m);
-            }
-            //hitMonsters.Clear();
-        }
     }
 
     public void Draw()
@@ -1217,7 +1318,7 @@ public class MonsterGroup
     public void Dispose()
     {
         foreach (var m in monsters.Iterate()) m.Dispose();
-        monsters = new PartitionedList<Monster>(monsters.partitionSize);
+        monsters.Dispose();
     }
 
     public void Remove(Monster m)
@@ -1794,7 +1895,7 @@ public class Player
     public float health = 100;
     public float mana = 0;
     public float damageElapse = 0;
-    public float defence = 7.5f;
+    public float defence = 8.5f;
 
     GameWithCoroutines game;
 
@@ -2204,42 +2305,6 @@ public class FX
 
 public class GameWithCoroutines : View
 {
-    /*
-	public async Coroutine ShowBigKanji() { }
-
-	public async Coroutine StartGameScript()
-	{
-		await ShowBigKanji();
-
-		var rounds = 0;
-
-		bool hasExample;
-		bool singleChar = false;
-		if (!hasExample)
-		{
-			rounds += 2;
-		}
-		if (singleChar)
-		{
-			rounds += 2;
-		}
-
-		await StartHuntVocab(rounds);
-
-		if (singleChar)
-		{
-			await StartHuntVocabParts();
-		}
-
-		if (hasExample)
-		{
-			await StartHuntExample();
-			await StartHuntExampleParts();
-		}
-		await ShowResult();
-	}
-
-	*/
 
     public enum State { Initializing, Playing, Clear, Gameover }
     public enum HuntState { Init, Vocab, VocabParts, Example, ExampleParts, Clear }
@@ -2421,9 +2486,11 @@ public class GameWithCoroutines : View
         {
             monster = m;
         };
+
         monsterGroup.RegisterOnKill(onKill);
-        using var _ = Defer.Run(() =>
+        var cleanup = ctrl.OnCleanup(() =>
         {
+            Console.WriteLine("remove on kill");
             monsterGroup.OnKill -= onKill;
         });
 
@@ -2431,6 +2498,8 @@ public class GameWithCoroutines : View
         {
             await ctrl.Yield();
         }
+
+        cleanup();
 
         return monster;
     }
@@ -2552,16 +2621,6 @@ public class GameWithCoroutines : View
         {
             InitGame(tryAgain);
 
-            //monsterGroup.SpawnFromCards(cards);
-            //var m = monsterGroup.Iterate().First();
-            //if (m != null)
-            //{
-            //	playing.subIndex = 0;
-            //	playing.target = m;
-            //	playing.state = HuntState.Init;
-            //}
-
-
             components.RemoveDraw(DrawClear);
 
             using var _1 = components.AddUpdate(UpdatePlayerAction);
@@ -2596,6 +2655,13 @@ public class GameWithCoroutines : View
                     // ignore
                     Console.WriteLine($"huh: ${e.Message}");
                 }
+
+                if (!gameScript.IsCompleted)
+                {
+                    await gameScript;
+                }
+                //await Coroutine.While(() => !gameScript.IsCompleted);
+                Console.WriteLine("gameScript {0}, {1}", gameScript.IsCompleted, gameScript.IsCanceled);
             }
 
             ctrl = new CoroutineControl();
@@ -2686,7 +2752,7 @@ public class GameWithCoroutines : View
         components.RemoveDraw(DrawInterface);
         components.AddDraw(draw);
 
-        using var _ = Defer.Run(() =>
+        var cleanup = ctrl.OnCleanup(() =>
         {
             monsterGroup.OnHit -= onHit;
             monsterGroup.OnKill -= onKill;
@@ -2774,6 +2840,7 @@ public class GameWithCoroutines : View
         await ctrl.AwaitTask(AnkiAudioPlayer.PlayWait(audio));
         await ctrl.Sleep(1);
 
+        cleanup();
         return correct;
     }
 
@@ -2998,8 +3065,9 @@ public class GameWithCoroutines : View
 
         monsterGroup.RegisterOnHit(OnTargetHit);
         monsterGroup.OnHit -= OnDefaultMonsterHit;
-        using var _ = Defer.Run(() =>
+        var cleanup = ctrl.OnCleanup(() =>
         {
+            Console.WriteLine(" ****************** defer start vocab part script ****************** ");
             monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
             monsterGroup.OnHit -= OnTargetHit;
         });
@@ -3021,6 +3089,8 @@ public class GameWithCoroutines : View
             playing.subTargets.Clear();
             AddSubTargetsBy(target, "VocabKanji");
         }
+
+        cleanup();
     }
     public async Coroutine StartExampleScript(CoroutineControl ctrl)
     {
@@ -3049,7 +3119,7 @@ public class GameWithCoroutines : View
 
         monsterGroup.RegisterOnHit(OnTargetHit);
         monsterGroup.OnHit -= OnDefaultMonsterHit;
-        using var _ = Defer.Run(() =>
+        var cleanup = ctrl.OnCleanup(() =>
         {
             monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
             monsterGroup.OnHit -= OnTargetHit;
@@ -3065,6 +3135,7 @@ public class GameWithCoroutines : View
             //AddExampleMonster(playing.target);
         }
 
+        cleanup();
     }
 
     public async Coroutine StartVocabScript(CoroutineControl ctrl)
@@ -3087,6 +3158,7 @@ public class GameWithCoroutines : View
 
         while (true)
         {
+
             var hunted = await GetHuntedKill(ctrl);
             playing.hunts++;
             if (playing.hunts >= playing.maxHunts)
@@ -4554,24 +4626,6 @@ Entity windowEntity;
 // ... etcetera
 
 
-class Defer
-{
-    struct Disposeable : IDisposable
-    {
-        Action? action;
-        public Disposeable(Action action) { this.action = action; }
-        public void Dispose()
-        {
-            if (action != null) action();
-            action = null;
-        }
-    }
-
-    public static IDisposable Run(Action action)
-    {
-        return new Disposeable(action);
-    }
-}
 
 
 public class TextProgress
