@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text.RegularExpressions;
 using FFMpegCore;
 using FFMpegCore.Enums;
 using FFMpegCore.Pipes;
@@ -336,7 +334,7 @@ public class Gamepad
 }
 
 
-public class PartitionedList<T> where T : IPos
+public class PartitionedList<T> : IDisposable where T : IPos
 {
     public class Partition : HashSet<T> { }
     public class Mapping : Dictionary<IntPair, Partition> { }
@@ -347,11 +345,14 @@ public class PartitionedList<T> where T : IPos
 
     Dictionary<T, Vector2> itemSet = new Dictionary<T, Vector2>();
 
+    List<T> removeQueue = new List<T>();
+
     public readonly Partition emptyEntry = new Partition();
 
     public PartitionedList(int partitionSize)
     {
         this.partitionSize = partitionSize;
+        Callbacks.OnPostUpdate += RemoveAllQueued;
     }
 
     public void AddAll(IEnumerable<T> newItems)
@@ -482,10 +483,30 @@ public class PartitionedList<T> where T : IPos
         itemSet.Remove(item);
     }
 
+    public void RemoveQueue(T item)
+    {
+        removeQueue.Add(item);
+    }
+
+    private void RemoveAllQueued()
+    {
+        for (var i = removeQueue.Count() - 1; i >= 0; i--)
+        {
+            Remove(removeQueue[i]);
+            removeQueue.RemoveAt(i);
+        }
+    }
+
     public void Clear()
     {
         items.Clear();
         itemSet.Clear();
+    }
+
+    public void Dispose()
+    {
+        Clear();
+        Callbacks.OnPostUpdate -= RemoveAllQueued;
     }
 }
 public class AnkiAudioPlayer
@@ -1084,11 +1105,15 @@ public class JP
 public class CoroutineControl
 {
     bool cancel = false;
+    static Action Nop = () => { };
+
+    public event Action OnCancel = Nop;
 
     public void Cancel(Coroutine? co = null)
     {
         co?.TryCancel();
         cancel = true;
+        OnCancel();
     }
 
     public YieldAwaitable Yield()
@@ -1100,8 +1125,7 @@ public class CoroutineControl
     {
         for (var i = 0; i < count; i++)
         {
-            if (cancel) Coroutine.ThrowCancel();
-            await Coroutine.Yield();
+            await Yield();
         }
     }
     public async Coroutine While(Func<bool> predicate)
@@ -1167,8 +1191,7 @@ public class CoroutineControl
     {
         while (true)
         {
-            if (cancel) Coroutine.ThrowCancel();
-            await Coroutine.Yield();
+            await Yield();
         }
     }
 
@@ -1180,8 +1203,11 @@ public class CoroutineControl
             done = done || key == waitKey;
         };
 
-        using var _ = KeyHandler.WithKeyPress(handler);
+        KeyHandler.OnKeyPress += handler;
+        var cleanup = OnCleanup(() => KeyHandler.OnKeyPress -= handler);
+
         while (!done) await Yield();
+        cleanup();
     }
 
     public async Coroutine AwaitAnyKey()
@@ -1192,17 +1218,77 @@ public class CoroutineControl
 
         KeyHandler.OnKeyPress += keyHandler;
         GamepadHandler.OnPress += gpadHandler;
-        using var _ = Defer.Run(() =>
+
+        var cleanup = OnCleanup(() =>
         {
             KeyHandler.OnKeyPress -= keyHandler;
             GamepadHandler.OnPress -= gpadHandler;
         });
 
         while (!done) await Yield();
+        cleanup();
+    }
+
+    public Action OnCleanup(Action fn)
+    {
+        Action foo = Nop;
+        var invoked = false;
+
+        foo = () =>
+        {
+            if (!invoked)
+            {
+                OnCancel -= foo;
+                fn();
+                invoked = true;
+            }
+        };
+        OnCancel += foo;
+        return foo;
     }
 
     public void Reset()
     {
         cancel = false;
+    }
+}
+
+public class Callbacks
+{
+    public static event Action OnPostUpdate = () => { };
+    public static event Action OnPreUpdate = () => { };
+    public static event Action OnPreDraw = () => { };
+    public static event Action OnPostDraw = () => { };
+
+    public static void PreDraw() => OnPreDraw();
+    public static void PostDraw() => OnPreDraw();
+    public static void PreUpdate() => OnPreUpdate();
+    public static void PostUpdate() => OnPreUpdate();
+}
+
+public class Defer
+{
+    struct Disposeable : IDisposable, IAsyncDisposable
+    {
+        Action? action;
+        string name = "";
+        public Disposeable(Action action, string name = "") { this.action = action; this.name = name; }
+        public void Dispose()
+        {
+            Console.WriteLine("Defer.Dispose |{0}|", name);
+            if (action != null) action();
+            action = null;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Dispose();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    public static IDisposable Run(Action action, string name = "")
+    {
+        return new Disposeable(action, name);
     }
 }

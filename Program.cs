@@ -1,14 +1,14 @@
 ﻿
-
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using FFmpeg.NET;
+using System.Threading;
 using Love;
 
 namespace gganki_love;
 
 public class Program : Scene
 {
+    public static Thread MainThread;
+
     SharedState state;
     KeyHandler keyHandler = new KeyHandler();
 
@@ -42,6 +42,7 @@ public class Program : Scene
         });
         Boot.Run(new Program(debug));
     }
+
 
     public Program(bool debug)
     {
@@ -81,6 +82,7 @@ public class Program : Scene
             {
                 scriptLoader.StartLoad();
             }
+
 
             return;
         }
@@ -129,7 +131,8 @@ public class Program : Scene
 
     public override async void Load()
     {
-        Mouse.SetRelativeMode(true);
+
+        //Mouse.SetRelativeMode(true);
         Mouse.SetGrabbed(true);
         //Mouse.SetVisible(false);
         //var filename = "78de88070e17b513462f962a8a481c6d.ogg";
@@ -254,6 +257,8 @@ public class Program : Scene
 
     public override void Update(float dt)
     {
+        Callbacks.PreUpdate();
+
         state.center = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
         state.centerTop = new Vector2(Graphics.GetWidth() / 2, 0);
         state.centerBottom = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight());
@@ -272,11 +277,15 @@ public class Program : Scene
         {
             c.Update(win);
         }
+
+        Callbacks.PostUpdate();
     }
 
 
     public override void Draw()
     {
+        Callbacks.PreDraw();
+
         state.activeView.Draw();
         scriptLoader.Draw();
 
@@ -289,5 +298,6 @@ public class Program : Scene
         Graphics.Print(Love.Timer.GetFPS().ToString(), 20, Graphics.GetHeight() - Graphics.GetFont().GetHeight() * 1.2f);
 
         //Lua.Draw();
+        Callbacks.PostDraw();
     }
 }
