@@ -77,7 +77,7 @@ public class GameView : View
             return;
         }
 
-        if (cards is null) return;
+        if (cards?.Length == 0) return;
 
 
         var newObjects = new List<GameObject>();

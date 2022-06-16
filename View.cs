@@ -108,21 +108,23 @@ public class LoaderView : View
         }
     }
 
-    public async Task<CardInfo[]> LoadDeck(string deckName)
-    {
-        var emptyCards = new CardInfo[0];
-        var cardIdResp = await AnkiConnect.FetchAvailableCardIds(deckName);
-        if (cardIdResp.error != null)
+    /*
+        public async Task<CardInfo[]> LoadDeck(string deckName)
         {
-            return emptyCards;
+            var emptyCards = new CardInfo[0];
+            var cardIdResp = await AnkiConnect.FetchAvailableCardIds(deckName);
+            if (cardIdResp.error != null)
+            {
+                return emptyCards;
+            }
+            var cardResp = await AnkiConnect.FetchCardInfo(cardIdResp.value ?? new ulong[0]);
+            if (cardResp.error != null)
+            {
+                return emptyCards;
+            }
+            return cardResp.value ?? emptyCards;
         }
-        var cardResp = await AnkiConnect.FetchCardInfo(cardIdResp.value ?? new ulong[0]);
-        if (cardResp.error != null)
-        {
-            return emptyCards;
-        }
-        return cardResp.value ?? emptyCards;
-    }
+    */
 
     public async Task<DeckNames?> LoadDecks()
     {

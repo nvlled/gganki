@@ -8,33 +8,6 @@ using System.Threading;
 
 public class Test
 {
-    //[Fact]
-    public async void TestFetchDecks()
-    {
-        var deckResp = await AnkiConnect.FetchDecks();
-        Assert.NotNull(deckResp);
-
-        if (deckResp?.value?.Count() == 0)
-        {
-            Console.WriteLine("no decks available");
-            return;
-        }
-
-        var deckName = deckResp?.value?.Keys.First() ?? "";
-        deckName = "AJT Kanji Transition TSC";
-
-        Console.WriteLine("using deck: " + deckName);
-        var cardIdResp = await AnkiConnect.FetchAvailableCardIds(deckName);
-        Assert.NotNull(cardIdResp);
-        Assert.Null(cardIdResp.error);
-        Assert.NotEmpty(cardIdResp.value);
-
-
-        var cardResp = await AnkiConnect.FetchCardInfo(cardIdResp?.value?[1] ?? 0);
-        Assert.NotNull(cardResp);
-        Assert.NotEmpty(cardResp.value);
-        Console.WriteLine(cardResp?.value?[0].cardId);
-    }
 
     //[Fact]
     public async void TestFetchCardInfo()
@@ -188,13 +161,36 @@ public class Test
     {
         try
         {
-            await Coroutine.DelayCount(100);
-            throw new Exception();
+            await Coroutine.WaitAny(
+                Fn3(),
+                Fn2()
+            );
         }
         finally
         {
             Console.WriteLine("finally B");
         }
+    }
+    public async Coroutine Fn2()
+    {
+        try
+        {
+            await Coroutine.DelayCount(300);
+            throw new Exception();
+        }
+        finally
+        {
+            Console.WriteLine("finally C");
+        }
+    }
+
+    public async Coroutine Fn3()
+    {
+        using var _ = Defer.Run(() =>
+        {
+            Console.WriteLine("finally D");
+        });
+        await Coroutine.DelayCount(100);
     }
 
 }
