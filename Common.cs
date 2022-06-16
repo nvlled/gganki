@@ -4,6 +4,7 @@ using FFMpegCore.Pipes;
 using AwaitableCoroutine;
 using Love;
 using MyNihongo.KanaDetector.Extensions;
+using System.Text.Json;
 
 namespace gganki_love;
 
@@ -974,7 +975,7 @@ public class Entity
 public class Corunner
 {
     public CoroutineRunner runner = new CoroutineRunner();
-    List<CoroutineBase> coroutines = new List<CoroutineBase>();
+    List<Coroutine> coroutines = new List<Coroutine>();
 
     public bool IsUpdating => runner.IsUpdating;
 
@@ -1107,13 +1108,10 @@ public class CoroutineControl
     bool cancel = false;
     static Action Nop = () => { };
 
-    public event Action OnCancel = Nop;
-
     public void Cancel(Coroutine? co = null)
     {
         co?.TryCancel();
         cancel = true;
-        OnCancel();
     }
 
     public YieldAwaitable Yield()
@@ -1204,10 +1202,8 @@ public class CoroutineControl
         };
 
         KeyHandler.OnKeyPress += handler;
-        var cleanup = OnCleanup(() => KeyHandler.OnKeyPress -= handler);
-
+        using var _ = Defer.Run(() => KeyHandler.OnKeyPress -= handler);
         while (!done) await Yield();
-        cleanup();
     }
 
     public async Coroutine AwaitAnyKey()
@@ -1219,32 +1215,13 @@ public class CoroutineControl
         KeyHandler.OnKeyPress += keyHandler;
         GamepadHandler.OnPress += gpadHandler;
 
-        var cleanup = OnCleanup(() =>
+        using var _ = Defer.Run(() =>
         {
             KeyHandler.OnKeyPress -= keyHandler;
             GamepadHandler.OnPress -= gpadHandler;
         });
 
         while (!done) await Yield();
-        cleanup();
-    }
-
-    public Action OnCleanup(Action fn)
-    {
-        Action foo = Nop;
-        var invoked = false;
-
-        foo = () =>
-        {
-            if (!invoked)
-            {
-                OnCancel -= foo;
-                fn();
-                invoked = true;
-            }
-        };
-        OnCancel += foo;
-        return foo;
     }
 
     public void Reset()
@@ -1290,5 +1267,235 @@ public class Defer
     public static IDisposable Run(Action action, string name = "")
     {
         return new Disposeable(action, name);
+    }
+}
+
+public class RandomContainer
+{
+    public static Random Rand = Random.Shared;
+}
+
+public class DebugUtils
+{
+    public static string DumpVar(object obj)
+    {
+        return JsonSerializer.Serialize(obj, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+    }
+    public static void PrintVar(object obj)
+    {
+        var formatted = JsonSerializer.Serialize(obj, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+        Console.WriteLine(formatted);
+    }
+}
+
+
+public enum MyGamepadButton
+{
+    A = GamepadButton.A,
+    B = GamepadButton.B,
+    X = GamepadButton.X,
+    Y = GamepadButton.Y,
+    Back = GamepadButton.Back,
+    Guide = GamepadButton.Guide,
+    Start = GamepadButton.Start,
+    LeftStick = GamepadButton.LeftStick,
+    RightStick = GamepadButton.RightStick,
+    LeftShoulder = GamepadButton.LeftShoulder,
+    RightShoulder = GamepadButton.RightShoulder,
+    DPadUp = GamepadButton.DPadUp,
+    DPadDown = GamepadButton.DPadDown,
+    DPadLeft = GamepadButton.DPadLeft,
+    DPadRight = GamepadButton.DPadRight,
+
+    LeftStickUp = 16,
+    LeftStickDown = 17,
+    LeftStickLeft = 18,
+    LeftStickRight = 19,
+
+    RightStickUp = 20,
+    RightStickDown = 21,
+    RightStickLeft = 22,
+    RightStickRight = 23,
+}
+
+
+public class GameInput
+{
+    public enum ActionType
+    {
+        Up,
+        Down,
+        Left,
+        Right,
+        ButtonA,
+        ButtonB,
+        ButtonC,
+    }
+
+    public record Action(ActionType actionType, float value = 1) { }
+    public Dictionary<KeyConstant, ActionType> KeyInput = new()
+    {
+        {KeyConstant.Up, ActionType.Up },
+        {KeyConstant.Down, ActionType.Down },
+        {KeyConstant.Left, ActionType.Left },
+        {KeyConstant.Right, ActionType.Right },
+    };
+
+    public Dictionary<MouseButton, ActionType> MouseInput = new()
+    {
+        {MouseButton.LeftButton, ActionType.ButtonA },
+        {MouseButton.RightButton, ActionType.ButtonB },
+    };
+    public Dictionary<MyGamepadButton, ActionType> GamepadInput = new()
+    {
+
+        {MyGamepadButton.DPadUp, ActionType.Up },
+        {MyGamepadButton.DPadDown, ActionType.Down },
+        {MyGamepadButton.DPadLeft, ActionType.Left },
+        {MyGamepadButton.DPadRight, ActionType.Right },
+
+        {MyGamepadButton.LeftStickUp, ActionType.Up },
+        {MyGamepadButton.LeftStickDown, ActionType.Down },
+        {MyGamepadButton.LeftStickLeft, ActionType.Left },
+        {MyGamepadButton.LeftStickRight, ActionType.Right },
+
+        {MyGamepadButton.A, ActionType.ButtonA },
+        {MyGamepadButton.B, ActionType.ButtonB },
+    };
+
+    public Dictionary<ActionType, KeyConstant[]> KeyInputRev = new() { };
+    public Dictionary<ActionType, MouseButton[]> MouseInputRev = new() { };
+    public Dictionary<ActionType, MyGamepadButton[]> GamepadInputRev = new() { };
+
+
+    public bool IsDown(ActionType type)
+    {
+        KeyConstant[]? keys = null;
+        if (KeyInputRev.TryGetValue(type, out keys))
+        {
+            foreach (var k in keys)
+            {
+                if (Keyboard.IsDown(k))
+                    return true;
+            }
+        }
+
+        MouseButton[]? mouseButtons = null;
+        if (MouseInputRev.TryGetValue(type, out mouseButtons))
+        {
+            foreach (var k in mouseButtons)
+            {
+                if (Mouse.IsDown(k))
+                    return true;
+            }
+        }
+
+        MyGamepadButton[]? gpadButtons = null;
+        if (GamepadInputRev.TryGetValue(type, out gpadButtons))
+        {
+            foreach (var k in gpadButtons)
+            {
+                if (Gamepad.IsDown((GamepadButton)k))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool IsPressed(ActionType type)
+    {
+        KeyConstant[]? keys = null;
+        if (KeyInputRev.TryGetValue(type, out keys))
+        {
+            foreach (var k in keys)
+            {
+                if (Keyboard.IsPressed(k))
+                    return true;
+            }
+        }
+
+        MouseButton[]? mouseButtons = null;
+        if (MouseInputRev.TryGetValue(type, out mouseButtons))
+        {
+            foreach (var k in mouseButtons)
+            {
+                if (Mouse.IsPressed(k))
+                    return true;
+            }
+        }
+
+        MyGamepadButton[]? gpadButtons = null;
+        if (GamepadInputRev.TryGetValue(type, out gpadButtons))
+        {
+            foreach (var k in gpadButtons)
+            {
+                if (Gamepad.IsPressed((GamepadButton)k))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+public record SimpleMenu(string[] choices) : View
+{
+    public record Choice(int index, string text) { }
+
+
+
+}
+
+public class LoaderView : View
+{
+    string DeckName { get; set; } = "";
+    public DeckNames DeckNames { get; set; } = new();
+
+    public List<CardInfo> NewCards { get; set; } = new();
+    public List<CardInfo> DueCards { get; set; } = new();
+
+    public void Draw()
+    {
+    }
+
+    public void Update()
+    {
+    }
+
+    public async Task<DeckNames> LoadDecks(string deckName)
+    {
+        var resp = (await AnkiConnect.FetchDecks()).Unwrap();
+        DeckNames = resp;
+        return resp ?? new DeckNames();
+    }
+
+    public async Task<IEnumerable<CardInfo>> LoadCards(string deckName)
+    {
+
+        var resp = await Task.WhenAll(
+            AnkiConnect.FetchNewCards(deckName),
+            AnkiConnect.FetchAvailableCards(deckName)
+        );
+        var newCards = resp[0].Unwrap();
+        var dueCards = resp[1].Unwrap();
+
+        foreach (var card in newCards)
+        {
+            card.IsNew = true;
+        }
+
+        NewCards = newCards.ToList();
+        DueCards = dueCards.ToList();
+
+        return dueCards.Union(newCards);
     }
 }

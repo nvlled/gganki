@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using AwaitableCoroutine;
 using MyNihongo.KanaDetector.Extensions;
 using Love.Misc;
+using static gganki_love.RandomContainer;
 
 public class Script : View
 {
@@ -714,6 +715,10 @@ public class WeaponEntity
         return new WeaponEntity(entity, new Vector2(1, 0), new Vector2(0, 1));
     }
 
+    public bool IsWhirlwindAttacking()
+    {
+        return logicState == State.Whirlwind && !whirlwind.charging;
+    }
 }
 
 public enum GAxisSide
@@ -1073,7 +1078,6 @@ public class Consumable : IEntity
 
 public class ItemGroup
 {
-    public event Action<IEntity> OnPickup = (item) => { };
 
     PartitionedList<IEntity> foods = new PartitionedList<IEntity>(SharedState.self.worldTileSize);
 
@@ -1087,9 +1091,19 @@ public class ItemGroup
     }
 
 
-    public IEntity SpawnMonster(string text, int? tileIDArg = null)
+    public IEntity SpawnRandom()
     {
-        return Consumable.CreateRandom();
+        var item = Consumable.CreateRandom();
+        item.pos = world != null ? Xt.Vector2.Random(world.Width, world.Height) : Xt.Vector2.Random();
+        foods.Add(item);
+        return item;
+    }
+
+    public void SpawnAt(Vector2 pos)
+    {
+        var item = Consumable.CreateRandom();
+        item.pos = pos + Xt.Vector2.RandomDir() * Rand.Next(50, 70);
+        foods.Add(item);
     }
 
 
@@ -1392,7 +1406,7 @@ public struct Attacked : IMonsterState
         {
             if (m.attacked.numBlinks > 1)
             {
-                m.approaching.pause = 0;
+                //m.approaching.pause = 0;
                 m.entity.color = Color.White;
                 m.logicState = m.attacked.prevState ?? m.approaching;
                 if (m.logicState.ID == Monster.State.Attacked)
@@ -1438,6 +1452,7 @@ public struct Approaching : IMonsterState
         if (m.approaching.pause > 0)
         {
             m.approaching.pause -= Love.Timer.GetDelta();
+            return;
         }
 
         var world = m.group.game.world;
@@ -1581,6 +1596,13 @@ public struct Idle : IMonsterState
 
 public class Monster : IPos
 {
+    [Flags]
+    public enum Flags
+    {
+        None = 0,
+        SubTarget = 1,
+    }
+
     public event Action<Monster> OnMonsterKill = (e) => { };
     public event Action<Monster> OnMonsterHit = (e) => { };
 
@@ -1609,6 +1631,7 @@ public class Monster : IPos
 
     public float health = 100;
     public float defense = 1;
+    public Flags flags = 0;
 
     public float speed
     {
@@ -1692,6 +1715,12 @@ public class Monster : IPos
     public void Draw()
     {
         entity.Draw();
+        if ((flags & Monster.Flags.SubTarget) != 0)
+        {
+            Graphics.SetColor(Color.Blue);
+            Graphics.Rectangle(DrawMode.Line, entity.rect);
+        }
+
         //Graphics.Rectangle(DrawMode.Line, entity.rect);
 
 
@@ -1774,7 +1803,16 @@ public class Monster : IPos
     {
         var attackDir = Vector2.Zero;
         var attackPos = weapon?.pos ?? target?.pos;
-        if (attackPos.HasValue)
+
+        var isWhirlwindAttack = (flags & Monster.Flags.SubTarget) == 0
+                           && (weapon?.IsWhirlwindAttacking() ?? false);
+
+        if (isWhirlwindAttack && weapon?.holder != null)
+        {
+            attackDir = Vector2.Normalize(weapon.holder.pos - pos);
+            approaching.pause = 5;
+        }
+        else if (attackPos.HasValue)
         {
             attackDir = Vector2.Normalize(attackPos.GetValueOrDefault() - pos);
         }
@@ -1786,6 +1824,7 @@ public class Monster : IPos
             ));
         }
         var n = weapon.logicState == WeaponEntity.State.Whirlwind ? 5 : 1;
+
         Attack(attackDir * n, damage);
 
     }
@@ -2051,6 +2090,11 @@ public class Player
         mana -= sword.whirlwind.manaCost * sword.whirlwind.steps;
         mana = MathF.Max(mana, 0);
         sword.ReleaseWhirlwind();
+    }
+
+    public void AddHealth(float healthGain)
+    {
+        health = MathF.Min(health + healthGain, 100);
     }
 }
 
@@ -2320,6 +2364,30 @@ public class GameWithCoroutines : View
         public int maxHunts;
         public TextProgress textProgress = new TextProgress();
 
+        public void AddSubTarget(Monster monster)
+        {
+            monster.flags = Monster.Flags.SubTarget;
+            subTargets.Add(monster);
+        }
+        public void SetSubTargets(IEnumerable<Monster> monsters)
+        {
+            subIndex = 0;
+            subTargets.Clear();
+            subTargets.AddRange(monsters);
+
+            if (subTargets.Count() > 0)
+            {
+                foreach (var m in subTargets)
+                {
+                    m.flags = Monster.Flags.SubTarget;
+                }
+            }
+        }
+        public void NextTarget()
+        {
+            subIndex++;
+        }
+
         //public GameWithCoroutines game;
 
         //public Playing(GameWithCoroutines game) { this.game = game; }
@@ -2373,6 +2441,7 @@ public class GameWithCoroutines : View
     public Camera cam;
     public World world;
     public MonsterGroup monsterGroup;
+    public ItemGroup itemGroup;
 
     ComponentRegistry components = new ComponentRegistry();
     Corunner runner = new Corunner();
@@ -2398,11 +2467,12 @@ public class GameWithCoroutines : View
         player = new Player(this);
         world = new World(this);
         monsterGroup = new MonsterGroup(this);
+        itemGroup = new ItemGroup(this);
 
 
         var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
         allCards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
-        allCards.Sort((a, b) => Random.Shared.Next(-1, 2));
+        //allCards.Sort((a, b) => Random.Shared.Next(-1, 2));
 
 
     }
@@ -2460,7 +2530,7 @@ public class GameWithCoroutines : View
         var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
         var cards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
 
-        cards.Sort((a, b) => Random.Shared.Next(-1, 2));
+        //cards.Sort((a, b) => Random.Shared.Next(-1, 2));
 
         cards = cards.Take(numText).ToList();
 
@@ -2488,18 +2558,15 @@ public class GameWithCoroutines : View
         };
 
         monsterGroup.RegisterOnKill(onKill);
-        var cleanup = ctrl.OnCleanup(() =>
+        using var _ = Defer.Run(() =>
         {
-            Console.WriteLine("remove on kill");
+            Console.WriteLine("*** remove on kill");
             monsterGroup.OnKill -= onKill;
         });
-
         while (monster == null)
         {
             await ctrl.Yield();
         }
-
-        cleanup();
 
         return monster;
     }
@@ -2561,13 +2628,20 @@ public class GameWithCoroutines : View
             }
             AnkiAudioPlayer.LoadCardAudios(cards);
         }
+
+        Console.WriteLine("==============================");
+        Console.WriteLine("current card");
+        Console.WriteLine(playing.card);
+
         //SetPlayingCard("脱ぐ");
 
-        Console.WriteLine("current card: `{0}`, {1}", playing.card.GetVocab(), playing.card.cardId);
+        //Console.WriteLine("current card: `{0}`, {1}", playing.card.GetVocab(), playing.card.cardId);
 
         monsterGroup.Clear();
         monsterGroup.RegisterOnKill(OnMonsterKill);
         monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
+
+        itemGroup.Clear();
 
         //monsterGroup = MonsterGroup.CreateFromCards(cards);
 
@@ -2617,6 +2691,7 @@ public class GameWithCoroutines : View
 
         CoroutineControl ctrl = new CoroutineControl();
         var tryAgain = false;
+        var skipChooseAnswer = false;
         while (true)
         {
             InitGame(tryAgain);
@@ -2630,15 +2705,19 @@ public class GameWithCoroutines : View
 
             gameState = State.Playing;
             var startHunt = true;
-            if (!tryAgain)
+            if (!tryAgain && !skipChooseAnswer)
             {
                 var correct = await StartChooseAnswerScript(ctrl);
                 if (correct)
                 {
                     startHunt = false;
                     gameState = State.Clear;
+                    _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Good);
                 }
-
+                else
+                {
+                    _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Again);
+                }
             }
 
             if (startHunt)
@@ -2660,8 +2739,11 @@ public class GameWithCoroutines : View
                 {
                     await gameScript;
                 }
-                //await Coroutine.While(() => !gameScript.IsCompleted);
-                Console.WriteLine("gameScript {0}, {1}", gameScript.IsCompleted, gameScript.IsCanceled);
+
+                if (gameState == State.Clear)
+                {
+                    _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Good);
+                }
             }
 
             ctrl = new CoroutineControl();
@@ -2685,7 +2767,6 @@ public class GameWithCoroutines : View
     {
         playing.hunts = 0;
         playing.maxHunts = 1;
-        playing.subIndex = 0;
         foreach (var m in playing.subTargets)
         {
             monsterGroup.Remove(m);
@@ -2752,7 +2833,7 @@ public class GameWithCoroutines : View
         components.RemoveDraw(DrawInterface);
         components.AddDraw(draw);
 
-        var cleanup = ctrl.OnCleanup(() =>
+        using var _ = Defer.Run(() =>
         {
             monsterGroup.OnHit -= onHit;
             monsterGroup.OnKill -= onKill;
@@ -2790,10 +2871,24 @@ public class GameWithCoroutines : View
             m.logicState = m.exploring;
         }
 
+        // TODO: get new cards
+        // TODO: refetch cards on new game
 
-        // TODO: pickables (health, power-ups, slowdown)
+        // TODO: disable audio play when hitting english texts
+        // TODO: await confirm (mouseclick, enter key/escape, gpad letter buttons)
 
-        // TODO: update anki card factor on clear
+        // TODO: show particle effect
+        //   particles.Add(tileIDs)
+        //   litters.Add(bloodIDs)
+
+        // TODO: example boss
+        //       shoots stuffs
+        //       other monsters walks outside of grid
+        //       focus camera on big guy and play text
+        //       pick up sword with the matching text
+
+        // TODO: random dungeon generation
+        //   canvas layers (floor, walls, entities, interface)
 
         // TODO: general codebase clean up
 
@@ -2840,7 +2935,6 @@ public class GameWithCoroutines : View
         await ctrl.AwaitTask(AnkiAudioPlayer.PlayWait(audio));
         await ctrl.Sleep(1);
 
-        cleanup();
         return correct;
     }
 
@@ -2968,7 +3062,7 @@ public class GameWithCoroutines : View
         }
         var target = playing.target;
 
-        await ReadyGameScript(ctrl);
+        //await ReadyGameScript(ctrl);
 
         await StartVocabScript(ctrl);
 
@@ -3065,7 +3159,7 @@ public class GameWithCoroutines : View
 
         monsterGroup.RegisterOnHit(OnTargetHit);
         monsterGroup.OnHit -= OnDefaultMonsterHit;
-        var cleanup = ctrl.OnCleanup(() =>
+        using var _ = Defer.Run(() =>
         {
             Console.WriteLine(" ****************** defer start vocab part script ****************** ");
             monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
@@ -3074,12 +3168,15 @@ public class GameWithCoroutines : View
 
         while (true)
         {
+            Vector2 lastPos = Vector2.Zero;
             while (playing.subIndex < playing.subTargets.Count())
             {
                 var hunted = await GetHuntedKill(ctrl);
                 playing.textProgress.NextTextItem();
-                playing.subIndex++;
+                playing.NextTarget();
+                lastPos = hunted.pos;
             }
+            DropLoots(lastPos);
             playing.subIndex = 0;
             playing.hunts++;
             if (playing.hunts >= playing.maxHunts)
@@ -3089,9 +3186,8 @@ public class GameWithCoroutines : View
             playing.subTargets.Clear();
             AddSubTargetsBy(target, "VocabKanji");
         }
-
-        cleanup();
     }
+
     public async Coroutine StartExampleScript(CoroutineControl ctrl)
     {
         ClearSubTargets();
@@ -3106,6 +3202,7 @@ public class GameWithCoroutines : View
             {
                 break;
             }
+            DropLoots(hunted.pos);
 
             playing.subTargets.Clear();
             AddExampleMonster(playing.target);
@@ -3119,7 +3216,7 @@ public class GameWithCoroutines : View
 
         monsterGroup.RegisterOnHit(OnTargetHit);
         monsterGroup.OnHit -= OnDefaultMonsterHit;
-        var cleanup = ctrl.OnCleanup(() =>
+        using var _ = Defer.Run(() =>
         {
             monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
             monsterGroup.OnHit -= OnTargetHit;
@@ -3129,13 +3226,11 @@ public class GameWithCoroutines : View
         {
             var hunted = await GetHuntedKill(ctrl);
             playing.textProgress.NextTextItem();
-            playing.subIndex++;
+            playing.NextTarget();
 
             //playing.subTargets.Clear();
             //AddExampleMonster(playing.target);
         }
-
-        cleanup();
     }
 
     public async Coroutine StartVocabScript(CoroutineControl ctrl)
@@ -3144,7 +3239,7 @@ public class GameWithCoroutines : View
         var target = playing.target;
         var skipVocabParts = target.text.Length <= 1;
         playing.textProgress.SetWholeText(target.text);
-        playing.subTargets.Add(target);
+        playing.AddSubTarget(target);
         playing.maxHunts = 2;
 
         if (skipVocabParts)
@@ -3165,6 +3260,7 @@ public class GameWithCoroutines : View
             {
                 break;
             }
+            DropLoots(hunted.pos);
 
             var font = SharedState.self.fontAsian;
             //var newMonster = new Monster(TileID.RandomMonsterID(), hunted.text.ToString(), font);
@@ -3175,7 +3271,7 @@ public class GameWithCoroutines : View
             newMonster.Flee(1);
 
             playing.subTargets.Clear();
-            playing.subTargets.Add(newMonster);
+            playing.AddSubTarget(newMonster);
 
         }
 
@@ -3236,7 +3332,7 @@ public class GameWithCoroutines : View
         newMonster.Flee(3);
 
         playing.textProgress.SetText(text);
-        playing.subTargets.Add(newMonster);
+        playing.AddSubTarget(newMonster);
         monsterGroup.Add(newMonster);
     }
 
@@ -3272,7 +3368,7 @@ public class GameWithCoroutines : View
 
             subMonsters.Add(newMonster);
         }
-        playing.subTargets = subMonsters;
+        playing.SetSubTargets(subMonsters);
     }
 
     /*
@@ -3313,6 +3409,7 @@ public class GameWithCoroutines : View
             cam.StartDraw();
             {
                 world.Draw();
+                itemGroup.Draw();
                 player.Draw();
                 monsterGroup.Draw();
                 DrawTargets();
@@ -3459,8 +3556,18 @@ public class GameWithCoroutines : View
         }
     }
 
+    public void DropLoots(Vector2 pos)
+    {
+        for (var i = 0; i < Rand.Next(1, 2); i++)
+        {
+            itemGroup.SpawnAt(pos);
+        }
+    }
+
     public void OnMonsterKill(Monster m)
     {
+        Console.WriteLine("default monster kill");
+        //DropLoots(m.pos);
     }
 
     public void OnTargetHit(Monster m)
@@ -3493,16 +3600,30 @@ public class GameWithCoroutines : View
     {
         Console.WriteLine("on default hit");
         var targetMonster = playing.subIndex >= 0 && playing.subIndex < playing.subTargets.Count()
-            ? playing.subTargets[playing.subIndex] : null;
+        ? playing.subTargets[playing.subIndex] : null;
         var isTarget = m.text == targetMonster?.text;
+        var isSubTarget = (m.flags & Monster.Flags.SubTarget) != 0;
         var r = Random.Shared;
         var (damage, manaGain) = !isTarget ? (r.Next(20, 30), r.Next(1, 2)) : (r.Next(30, 60), r.Next(3, 5));
 
-        m.Attack(player.sword, damage);
+        if (!(isSubTarget && player.sword.IsWhirlwindAttacking()))
+        {
+            m.Attack(player.sword, damage);
+            var filename = m.audioFilename;
+            AnkiAudioPlayer.Play(filename);
+            UpdateMana(manaGain);
+        }
 
-        var filename = m.audioFilename;
-        AnkiAudioPlayer.Play(filename);
-        UpdateMana(manaGain);
+
+    }
+
+    public void OnItemPickup(IEntity item)
+    {
+        if (item is Consumable food)
+        {
+            itemGroup.Remove(item);
+            player.AddHealth(food.healthGain);
+        }
     }
 
     public void UpdateMana(float gain)
@@ -3673,19 +3794,19 @@ public class GameWithCoroutines : View
         {
             gameState = State.Gameover;
         }
-    }
-
-    public bool IsTarget(Monster m)
-    {
-        foreach (var (t, i) in playing.subTargets.WithIndex())
+        else
         {
-            if (t.text == m.text && i <= playing.subIndex)
+            foreach (var item in itemGroup.GetItemsAt(player.rect))
             {
-                return true;
+                if (item.rect.IntersectsWith(player.rect))
+                {
+                    OnItemPickup(item);
+                }
             }
         }
-        return false;
+        itemGroup.Update();
     }
+
 
     public void UpdateMonsterCollision()
     {
@@ -4716,3 +4837,4 @@ public class TextProgress
     }
 
 }
+

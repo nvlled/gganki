@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AwaitableCoroutine" Version="1.7.0" />
+    <PackageReference Include="AwaitableCoroutine" Version="1.8.0" />
     <PackageReference Include="CS-Script" Version="4.4.5" />
     <PackageReference Include="ffmpeg.nuget" Version="1.0.0" />
     <PackageReference Include="FFMpegCore" Version="4.8.0" />
