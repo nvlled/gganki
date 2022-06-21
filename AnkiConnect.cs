@@ -103,6 +103,7 @@ public class DeckNames : Dictionary<string, ulong> { }
 public record class CardInfo
 {
 
+    public bool IsPlayed { get; set; }
     public bool IsNew { get; set; }
 
 

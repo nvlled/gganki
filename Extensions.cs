@@ -71,6 +71,36 @@ public static class ListXt
 
 public static class StringXt
 {
+    public static (int, int) FindSubstringIndex(this string text, string sub)
+    {
+        var end = sub.Length;
+        while (end > 0)
+        {
+            if (text == sub)
+            {
+                return (-1, -1);
+            }
+
+            var mid = sub[0..end];
+            var index = text.IndexOf(mid);
+            if (index < 0)
+            {
+                end--;
+                continue;
+            }
+            var duplicate = text.IndexOf(mid, index + 1) >= index;
+            if (duplicate)
+            {
+                end--;
+                continue;
+            }
+
+
+            return (index, index + mid.Length - 1);
+        }
+        return (-1, -1);
+    }
+
     public static (string, string, string) DivideBy(this string text, string sub)
     {
         var end = sub.Length;
@@ -111,6 +141,15 @@ public static class Xt
         public static int RandomSign()
         {
             return Random.Shared.Next(0, 2) == 1 ? 1 : -1;
+        }
+
+        public static float Clamp(float x, int v1, int v2)
+        {
+            if (x < v1)
+                return v1;
+            if (x > v2)
+                return v2;
+            return x;
         }
     }
     public static class String
@@ -156,6 +195,22 @@ public static class Xt
             var height = font.GetHeight() + margin;
             var topLeft = PrintPos + new Love.Vector2(-width / 2, -height);
             Love.Graphics.Rectangle(mode, topLeft.X, topLeft.Y, width, height);
+        }
+        public static void PrintVertical(string text, Love.Vector2 pos)
+        {
+            PrintVertical(text, pos.X, pos.Y);
+        }
+        public static void PrintVertical(string text, float x, float y)
+        {
+            var font = Love.Graphics.GetFont();
+            var h = font.GetHeight();
+            foreach (var ch in text)
+            {
+                var str = ch.ToString();
+                var w = font.GetWidth(str);
+                Love.Graphics.Print(str, x - w / 2, y);
+                y += h;
+            }
         }
     }
 
@@ -258,7 +313,7 @@ public static class Xt
             MouseHandler.OnMouseRelease += OnRelease;
         }
 
-        private static void OnRelease(MouseHandler.Event ev)
+        private static void OnRelease(MouseHandler.ButtonEvent ev)
         {
             (float, bool) val;
             if (pressed.TryGetValue(ev.button, out val))
@@ -268,7 +323,7 @@ public static class Xt
             }
         }
 
-        private static void OnPress(MouseHandler.Event ev)
+        private static void OnPress(MouseHandler.ButtonEvent ev)
         {
             pressed[ev.button] = (Love.Timer.GetTime(), true);
         }

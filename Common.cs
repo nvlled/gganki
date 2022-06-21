@@ -5,6 +5,7 @@ using AwaitableCoroutine;
 using Love;
 using MyNihongo.KanaDetector.Extensions;
 using System.Text.Json;
+using System.Text;
 
 namespace gganki_love;
 
@@ -20,7 +21,7 @@ public interface IPos
 
 public class Config
 {
-    public const int fontSize = 57;
+    public const int fontSize = 50;
     public const int fontSizeTiny = 14;
     public const int fontSizeSmall = 18;
     public const int fontSizeMedium = 32;
@@ -147,24 +148,32 @@ public class KeyHandler
 }
 public class MouseHandler
 {
-    public record Event(float x, float y, MouseButton button, bool isTouch)
+    public record ButtonEvent(float x, float y, MouseButton button, bool isTouch)
     { }
 
-    public delegate void MouseReleased(Event ev);
-    public delegate void MousePress(Event ev);
+    public record MoveEvent(float x, float y, float dx, float dy, bool isTouch)
+    { }
+
+    public delegate void MouseReleased(ButtonEvent ev);
+    public delegate void MousePress(ButtonEvent ev);
+    public delegate void MouseMoved(MoveEvent ev);
     public static event MousePress? OnMousePress;
     public static event MouseReleased? OnMouseRelease;
+    public static event MouseMoved? OnMouseMove;
 
-    public static void DispatchMousePress(Event ev)
+    public static void DispatchMousePress(ButtonEvent ev)
     {
         OnMousePress?.Invoke(ev);
     }
-    public static void DispatchMouseRelease(Event ev)
+    public static void DispatchMouseRelease(ButtonEvent ev)
     {
         OnMouseRelease?.Invoke(ev);
     }
 
-
+    internal static void DispatchMouseMove(MouseHandler.MoveEvent moveEvent)
+    {
+        OnMouseMove?.Invoke(moveEvent);
+    }
 }
 
 
@@ -353,7 +362,7 @@ public class PartitionedList<T> : IDisposable where T : IPos
     public PartitionedList(int partitionSize)
     {
         this.partitionSize = partitionSize;
-        Callbacks.OnPostUpdate += RemoveAllQueued;
+        Callbacks.AddPostUpdate(RemoveAllQueued);
     }
 
     public void AddAll(IEnumerable<T> newItems)
@@ -507,7 +516,7 @@ public class PartitionedList<T> : IDisposable where T : IPos
     public void Dispose()
     {
         Clear();
-        Callbacks.OnPostUpdate -= RemoveAllQueued;
+        Callbacks.RemovePostUpdate(RemoveAllQueued);
     }
 }
 public class AnkiAudioPlayer
@@ -1232,15 +1241,58 @@ public class CoroutineControl
 
 public class Callbacks
 {
-    public static event Action OnPostUpdate = () => { };
-    public static event Action OnPreUpdate = () => { };
-    public static event Action OnPreDraw = () => { };
-    public static event Action OnPostDraw = () => { };
+    static event Action OnPostUpdate = () => { };
+    static event Action OnPreUpdate = () => { };
+    static event Action OnUpdate = () => { };
+    static event Action OnDraw = () => { };
+    static event Action OnPreDraw = () => { };
+    static event Action OnPostDraw = () => { };
 
+    public static void Draw() => OnDraw();
     public static void PreDraw() => OnPreDraw();
-    public static void PostDraw() => OnPreDraw();
+    public static void PostDraw() => OnPostDraw();
+    public static void Update() => OnUpdate();
     public static void PreUpdate() => OnPreUpdate();
-    public static void PostUpdate() => OnPreUpdate();
+    public static void PostUpdate() => OnPostUpdate();
+
+    public static void AddUpdate(Action fn)
+    {
+        OnUpdate -= fn;
+        OnUpdate += fn;
+    }
+    public static void AddPreUpdate(Action fn)
+    {
+        OnPreUpdate -= fn;
+        OnPreUpdate += fn;
+    }
+    public static void AddPostUpdate(Action fn)
+    {
+        OnPostUpdate -= fn;
+        OnPostUpdate += fn;
+    }
+    public static void RemoveUpdate(Action fn) => OnUpdate -= fn;
+    public static void RemovePreUpdate(Action fn) => OnPreUpdate -= fn;
+    public static void RemovePostUpdate(Action fn) => OnPostUpdate -= fn;
+
+    public static void AddDraw(Action fn)
+    {
+        OnDraw -= fn;
+        OnDraw += fn;
+    }
+    public static void AddPreDraw(Action fn)
+    {
+        OnPreDraw -= fn;
+        OnPreDraw += fn;
+    }
+    public static void AddPostDraw(Action fn)
+    {
+        OnPostDraw -= fn;
+        OnPostDraw += fn;
+    }
+
+    public static void RemoveDraw(Action fn) => OnDraw -= fn;
+    public static void RemovePreDraw(Action fn) => OnPreDraw -= fn;
+    public static void RemovePostDraw(Action fn) => OnPostDraw -= fn;
 }
 
 public class Defer
@@ -1297,7 +1349,9 @@ public class DebugUtils
 }
 
 
-public enum MyGamepadButton
+
+
+public enum GamepadInput
 {
     A = GamepadButton.A,
     B = GamepadButton.B,
@@ -1326,176 +1380,549 @@ public enum MyGamepadButton
     RightStickRight = 23,
 }
 
-
-public class GameInput
+public enum MouseInput
 {
-    public enum ActionType
-    {
-        Up,
-        Down,
-        Left,
-        Right,
-        ButtonA,
-        ButtonB,
-        ButtonC,
-    }
+    LeftButton = MouseButton.LeftButton,
+    RightButton = MouseButton.RightButton,
+    MiddleButton = MouseButton.MiddleButton,
+    ExtendedButton1 = MouseButton.ExtendedButton1,
+    ExtendedButton2 = MouseButton.ExtendedButton2,
+    ExtendedButton3 = MouseButton.ExtendedButton3,
+    ExtendedButton4 = MouseButton.ExtendedButton4,
+    ExtendedButton5 = MouseButton.ExtendedButton5,
 
-    public record Action(ActionType actionType, float value = 1) { }
-    public Dictionary<KeyConstant, ActionType> KeyInput = new()
+    MoveUp = MouseButton.ExtendedButton5 + 1,
+    MoveDown = MouseButton.ExtendedButton5 + 2,
+    MoveLeft = MouseButton.ExtendedButton5 + 3,
+    MoveRight = MouseButton.ExtendedButton5 + 4,
+}
+
+public enum ActionType
+{
+    Up,
+    Down,
+    Left,
+    Right,
+    Up2,
+    Down2,
+    Left2,
+    Right2,
+    ButtonA,
+    ButtonB,
+    ButtonX,
+    ButtonY,
+}
+
+public class GameInput : IDisposable
+{
+    public event Action<ActionType> OnPress = (a) => { };
+    public event Action<ActionType> OnRelease = (a) => { };
+    public event Action<Vector2> OnMotion1 = (v) => { };
+    public event Action<Vector2> OnMotion2 = (v) => { };
+
+    public Dictionary<KeyConstant, ActionType> keyMap = new()
     {
         {KeyConstant.Up, ActionType.Up },
         {KeyConstant.Down, ActionType.Down },
         {KeyConstant.Left, ActionType.Left },
         {KeyConstant.Right, ActionType.Right },
+
+        {KeyConstant.W, ActionType.Up },
+        {KeyConstant.S, ActionType.Down },
+        {KeyConstant.A, ActionType.Left },
+        {KeyConstant.D, ActionType.Right },
+
+        {KeyConstant.Space, ActionType.ButtonX },
+        {KeyConstant.Enter, ActionType.ButtonA },
     };
 
-    public Dictionary<MouseButton, ActionType> MouseInput = new()
+    public Dictionary<MouseInput, ActionType> mouseMap = new()
     {
-        {MouseButton.LeftButton, ActionType.ButtonA },
-        {MouseButton.RightButton, ActionType.ButtonB },
+        {MouseInput.LeftButton, ActionType.ButtonA },
+        {MouseInput.RightButton, ActionType.ButtonB },
+
+        {MouseInput.MoveUp, ActionType.Up2 },
+        {MouseInput.MoveDown, ActionType.Down2 },
+        {MouseInput.MoveLeft, ActionType.Left2 },
+        {MouseInput.MoveRight, ActionType.Right2 },
     };
-    public Dictionary<MyGamepadButton, ActionType> GamepadInput = new()
+    public Dictionary<GamepadInput, ActionType> gamepadMap = new()
     {
+        { gganki_love.GamepadInput.DPadUp, ActionType.Up },
+        { gganki_love.GamepadInput.DPadDown, ActionType.Down },
+        { gganki_love.GamepadInput.DPadLeft, ActionType.Left },
+        { gganki_love.GamepadInput.DPadRight, ActionType.Right },
 
-        {MyGamepadButton.DPadUp, ActionType.Up },
-        {MyGamepadButton.DPadDown, ActionType.Down },
-        {MyGamepadButton.DPadLeft, ActionType.Left },
-        {MyGamepadButton.DPadRight, ActionType.Right },
+        { gganki_love.GamepadInput.LeftStickUp, ActionType.Up },
+        { gganki_love.GamepadInput.LeftStickDown, ActionType.Down },
+        { gganki_love.GamepadInput.LeftStickLeft, ActionType.Left },
+        { gganki_love.GamepadInput.LeftStickRight, ActionType.Right },
 
-        {MyGamepadButton.LeftStickUp, ActionType.Up },
-        {MyGamepadButton.LeftStickDown, ActionType.Down },
-        {MyGamepadButton.LeftStickLeft, ActionType.Left },
-        {MyGamepadButton.LeftStickRight, ActionType.Right },
+        { gganki_love.GamepadInput.RightStickUp, ActionType.Up2 },
+        { gganki_love.GamepadInput.RightStickDown, ActionType.Down2 },
+        { gganki_love.GamepadInput.RightStickLeft, ActionType.Left2 },
+        { gganki_love.GamepadInput.RightStickRight, ActionType.Right2 },
 
-        {MyGamepadButton.A, ActionType.ButtonA },
-        {MyGamepadButton.B, ActionType.ButtonB },
+        { gganki_love.GamepadInput.A, ActionType.ButtonA },
+        { gganki_love.GamepadInput.B, ActionType.ButtonB },
     };
 
-    public Dictionary<ActionType, KeyConstant[]> KeyInputRev = new() { };
-    public Dictionary<ActionType, MouseButton[]> MouseInputRev = new() { };
-    public Dictionary<ActionType, MyGamepadButton[]> GamepadInputRev = new() { };
+    public bool Disabled { get; set; } = false;
 
+    Dictionary<ActionType, float> actionMap = new();
+    Dictionary<ActionType, bool> actionPressed = new();
+    Dictionary<ActionType, float> actionChargeTime = new();
+
+    Vector2 mouseAxis = Vector2.Zero;
+    Vector2 gpadLeftAxis = Vector2.Zero;
+    Vector2 gpadRightAxis = Vector2.Zero;
+
+    public GameInput()
+    {
+        KeyHandler.OnKeyPress += OnKeyPress;
+        KeyHandler.OnKeyRelease += OnKeyRelease;
+        MouseHandler.OnMousePress += OnMousePress;
+        MouseHandler.OnMouseRelease += OnMouseRelease;
+        MouseHandler.OnMouseMove += OnMouseMove;
+        GamepadHandler.OnPress += OnGamepadPress;
+        GamepadHandler.OnRelease += OnGamepadRelease;
+        GamepadHandler.OnAxis += OnGamepadAxis;
+        Callbacks.AddPostUpdate(OnPostUpdate);
+    }
+
+    public void Dispose()
+    {
+        KeyHandler.OnKeyPress -= OnKeyPress;
+        KeyHandler.OnKeyRelease -= OnKeyRelease;
+        MouseHandler.OnMousePress -= OnMousePress;
+        MouseHandler.OnMouseRelease -= OnMouseRelease;
+        MouseHandler.OnMouseMove -= OnMouseMove;
+        GamepadHandler.OnPress -= OnGamepadPress;
+        GamepadHandler.OnRelease -= OnGamepadRelease;
+        GamepadHandler.OnAxis -= OnGamepadAxis;
+        Callbacks.RemovePostUpdate(OnPostUpdate);
+    }
+
+    private void OnGamepadAxis(Joystick arg1, GamepadAxis axisType, float value)
+    {
+        if (axisType == GamepadAxis.TriggerLeft || axisType == GamepadAxis.TriggerRight)
+        {
+            return;
+        }
+
+        Vector2 axis = axisType == GamepadAxis.LeftX || axisType == GamepadAxis.LeftY
+                ? gpadLeftAxis
+                : gpadRightAxis;
+
+        if (axisType == GamepadAxis.LeftX || axisType == GamepadAxis.RightX)
+        {
+            axis.X = value;
+
+            var val = MathF.Abs(axis.X);
+            var rightType = ActionType.Right;
+            var leftType = ActionType.Left;
+            var (gpadLeft, gpadRight) = axisType == GamepadAxis.LeftX
+                                      ? (GamepadInput.LeftStickLeft, GamepadInput.LeftStickRight)
+                                      : (GamepadInput.RightStickLeft, GamepadInput.RightStickRight);
+
+            gamepadMap.TryGetValue(gpadLeft, out leftType);
+            gamepadMap.TryGetValue(gpadRight, out rightType);
+
+            if (axis.X > 0)
+            {
+                SetActionMapValue(rightType, val);
+                SetActionMapValue(leftType, 0);
+            }
+            else if (axis.X < 0)
+            {
+                SetActionMapValue(rightType, 0);
+                SetActionMapValue(leftType, val);
+            }
+            else
+            {
+                SetActionMapValue(rightType, 0);
+                SetActionMapValue(leftType, 0);
+            }
+        }
+
+        if (axisType == GamepadAxis.LeftY || axisType == GamepadAxis.RightY)
+        {
+            axis.Y = value;
+
+            var val = MathF.Abs(axis.Y);
+            var upType = ActionType.Up;
+            var downType = ActionType.Down;
+            var (gpadDown, gpadUp) = axisType == GamepadAxis.LeftY
+                                      ? (GamepadInput.LeftStickDown, GamepadInput.LeftStickUp)
+                                      : (GamepadInput.RightStickDown, GamepadInput.RightStickUp);
+
+            gamepadMap.TryGetValue(gpadUp, out upType);
+            gamepadMap.TryGetValue(gpadDown, out downType);
+
+            if (axis.Y > 0)
+            {
+                SetActionMapValue(upType, 0);
+                SetActionMapValue(downType, val);
+            }
+            else if (axis.Y < 0)
+            {
+                SetActionMapValue(upType, val);
+                SetActionMapValue(downType, 0);
+            }
+            else
+            {
+                SetActionMapValue(upType, 0);
+                SetActionMapValue(downType, 0);
+            }
+        }
+    }
+
+    private void OnGamepadRelease(Joystick js, GamepadButton button)
+    {
+        ActionType type;
+        if (gamepadMap.TryGetValue((GamepadInput)button, out type))
+        {
+            SetActionMapValue(type, 0);
+        }
+    }
+
+    private void OnGamepadPress(Joystick js, GamepadButton button)
+    {
+        ActionType type;
+        if (gamepadMap.TryGetValue((GamepadInput)button, out type))
+        {
+            SetActionMapValue(type, 1);
+        }
+    }
+
+    public void HoldAction(ActionType type, float value = 1)
+    {
+        SetActionMapValue(type, value);
+    }
+    public void ReleaseAction(ActionType type)
+    {
+        SetActionMapValue(type, 0);
+    }
+
+    private void OnMouseMove(MouseHandler.MoveEvent ev)
+    {
+        var n = 50;
+        mouseAxis.X = Xt.MathF.Clamp(mouseAxis.X + ev.dx / n, -1, 1);
+        mouseAxis.Y = Xt.MathF.Clamp(mouseAxis.Y + ev.dy / n, -1, 1);
+
+        var xVal = MathF.Abs(mouseAxis.X);
+        var yVal = MathF.Abs(mouseAxis.Y);
+
+
+        if (ev.dx != 0)
+        {
+            var rightType = ActionType.Right2;
+            var leftType = ActionType.Left2;
+            var hasRight = mouseMap.TryGetValue(MouseInput.MoveRight, out rightType);
+            var hasLeft = mouseMap.TryGetValue(MouseInput.MoveLeft, out leftType);
+
+            //Console.WriteLine("{0}, {1}", mouseAxis, (xVal, yVal));
+            if (mouseAxis.X > 0 && hasRight)
+            {
+                SetActionMapValue(rightType, xVal);
+                SetActionMapValue(leftType, 0);
+            }
+            else if (mouseAxis.X < 0 && hasLeft)
+            {
+                SetActionMapValue(rightType, 0);
+                SetActionMapValue(leftType, xVal);
+            }
+            else
+            {
+                SetActionMapValue(rightType, 0);
+                SetActionMapValue(leftType, 0);
+            }
+        }
+
+        if (ev.dy != 0)
+        {
+            var upType = ActionType.Up2;
+            var downType = ActionType.Down2;
+            var hasUp = mouseMap.TryGetValue(MouseInput.MoveUp, out upType);
+            var hasDown = mouseMap.TryGetValue(MouseInput.MoveDown, out downType);
+
+            if (mouseAxis.Y > 0 && hasDown)
+            {
+                SetActionMapValue(downType, yVal);
+                SetActionMapValue(upType, 0);
+            }
+            else if (mouseAxis.Y < 0 && hasUp)
+            {
+                SetActionMapValue(upType, yVal);
+                SetActionMapValue(downType, 0);
+            }
+            else
+            {
+                SetActionMapValue(upType, 0);
+                SetActionMapValue(downType, 0);
+            }
+        }
+    }
+
+    private void OnMouseRelease(MouseHandler.ButtonEvent ev)
+    {
+        ActionType type;
+        if (mouseMap.TryGetValue((MouseInput)ev.button, out type))
+        {
+            SetActionMapValue(type, 0);
+        }
+    }
+
+    private void OnMousePress(MouseHandler.ButtonEvent ev)
+    {
+        ActionType type;
+        if (mouseMap.TryGetValue((MouseInput)ev.button, out type))
+        {
+            SetActionMapValue(type, 1);
+        }
+    }
+
+    private void OnKeyRelease(KeyConstant key, Scancode scancode)
+    {
+        ActionType type;
+        if (keyMap.TryGetValue(key, out type))
+        {
+            SetActionMapValue(type, 0);
+        }
+    }
+
+    private void OnKeyPress(KeyConstant key, Scancode scancode, bool isRepeat)
+    {
+        ActionType type;
+        if (keyMap.TryGetValue(key, out type))
+        {
+            SetActionMapValue(type, 1);
+        }
+    }
+
+    public Vector2 GetMotion()
+    {
+        var v = new Vector2(
+            -GetActionMapValue(ActionType.Left) + GetActionMapValue(ActionType.Right),
+            -GetActionMapValue(ActionType.Up) + GetActionMapValue(ActionType.Down)
+        );
+
+        if (v.Length() != 0)
+            v = Vector2.Normalize(v);
+
+        return v;
+    }
+    public Vector2 GetMotion2()
+    {
+        var v = new Vector2(
+            -GetActionMapValue(ActionType.Left2) + GetActionMapValue(ActionType.Right2),
+            -GetActionMapValue(ActionType.Up2) + GetActionMapValue(ActionType.Down2)
+        );
+
+        if (v.Length() != 0)
+            v = Vector2.Normalize(v);
+
+        return v;
+
+
+    }
 
     public bool IsDown(ActionType type)
     {
-        KeyConstant[]? keys = null;
-        if (KeyInputRev.TryGetValue(type, out keys))
+        float value;
+        if (actionMap.TryGetValue(type, out value))
         {
-            foreach (var k in keys)
-            {
-                if (Keyboard.IsDown(k))
-                    return true;
-            }
+            return value > 0;
         }
-
-        MouseButton[]? mouseButtons = null;
-        if (MouseInputRev.TryGetValue(type, out mouseButtons))
-        {
-            foreach (var k in mouseButtons)
-            {
-                if (Mouse.IsDown(k))
-                    return true;
-            }
-        }
-
-        MyGamepadButton[]? gpadButtons = null;
-        if (GamepadInputRev.TryGetValue(type, out gpadButtons))
-        {
-            foreach (var k in gpadButtons)
-            {
-                if (Gamepad.IsDown((GamepadButton)k))
-                    return true;
-            }
-        }
-
         return false;
     }
 
     public bool IsPressed(ActionType type)
     {
-        KeyConstant[]? keys = null;
-        if (KeyInputRev.TryGetValue(type, out keys))
+        if (!IsDown(type))
         {
-            foreach (var k in keys)
-            {
-                if (Keyboard.IsPressed(k))
-                    return true;
-            }
+            return false;
         }
 
-        MouseButton[]? mouseButtons = null;
-        if (MouseInputRev.TryGetValue(type, out mouseButtons))
+        return actionPressed.GetValueOrDefault(type, false);
+    }
+    public float GetChargeTime(ActionType type)
+    {
+        if (IsDown(type))
         {
-            foreach (var k in mouseButtons)
+            var now = Love.Timer.GetTime();
+            var start = actionChargeTime.GetValueOrDefault(type, now);
+            return now - MathF.Abs(start);
+        }
+        return 0;
+    }
+    public float GetReleaseChargeTime(ActionType type)
+    {
+        var now = Love.Timer.GetTime();
+        var start = actionChargeTime.GetValueOrDefault(type, now);
+        if (!IsDown(type) && start < 0)
+        {
+            return MathF.Abs(now - start);
+        }
+        return 0;
+    }
+
+    public async Coroutine<ActionType> PressAny(CoroutineControl ctrl, params ActionType[] actions)
+    {
+        ActionType? type = null;
+        var onPress = (ActionType t) =>
+        {
+            foreach (var t2 in actions)
             {
-                if (Mouse.IsPressed(k))
-                    return true;
+                if (t == t2)
+                {
+                    type = t;
+                    break;
+                }
             }
+        };
+
+        OnPress += onPress;
+        using var _ = Defer.Run(() => OnPress -= onPress);
+        while (type is null) await ctrl.Yield();
+
+        return type.Value;
+    }
+
+    private float GetActionMapValue(ActionType type)
+    {
+        return actionMap.GetValueOrDefault(type, 0);
+    }
+
+    private void SetActionMapValue(ActionType type, float value)
+    {
+        if (Disabled)
+        {
+            return;
         }
 
-        MyGamepadButton[]? gpadButtons = null;
-        if (GamepadInputRev.TryGetValue(type, out gpadButtons))
+        var prevValue = actionMap.GetValueOrDefault(type, 0);
+        if (prevValue == 0 && value > 0)
         {
-            foreach (var k in gpadButtons)
-            {
-                if (Gamepad.IsPressed((GamepadButton)k))
-                    return true;
-            }
+            actionPressed[type] = true;
+            actionChargeTime[type] = Love.Timer.GetTime();
+            OnPress(type);
+        }
+        else if (value == 0 && prevValue > 0)
+        {
+            OnRelease(type);
         }
 
-        return false;
+
+        actionMap[type] = value;
+
+        if (value != prevValue)
+        {
+            var isMotion1 = type == ActionType.Up
+                         || type == ActionType.Down
+                         || type == ActionType.Left
+                         || type == ActionType.Right;
+            var isMotion2 = type == ActionType.Up2
+                         || type == ActionType.Down2
+                         || type == ActionType.Left2
+                         || type == ActionType.Right2;
+
+            if (isMotion1)
+                OnMotion1(GetMotion());
+            else if (isMotion2)
+                OnMotion2(GetMotion2());
+        }
+
+    }
+
+
+    private void OnPostUpdate()
+    {
+        foreach (var actionType in Enum.GetValues(typeof(ActionType)).Cast<ActionType>())
+        {
+            actionPressed[actionType] = false;
+            var value = actionMap.GetValueOrDefault(actionType, 0);
+            if (value == 0)
+            {
+                var chargeTime = actionChargeTime.GetValueOrDefault(actionType, 0);
+                if (chargeTime > 0)
+                {
+                    // set to negative to clear on next frame update
+                    actionChargeTime[actionType] = -chargeTime;
+                }
+                else if (chargeTime < 0)
+                {
+                    actionChargeTime[actionType] = 0;
+                }
+            }
+        }
     }
 }
 
-public record SimpleMenu(string[] choices) : View
+/*
+Playing menu
+> Select deck
+> Restart
+> Quit
+
+Clear menu
+> Next
+> play again
+
+Gameover menu
+> retry
+> quit
+
+
+
+*/
+
+
+public class MouseAxis : IDisposable
 {
-    public record Choice(int index, string text) { }
+    Vector2 axis = Vector2.Zero;
+    public MouseAxis()
+    {
+        MouseHandler.OnMouseMove += OnMouseMove;
+    }
 
+    public void Reset()
+    {
+        axis = Vector2.Zero;
+    }
 
+    public Vector2 GetDirection()
+    {
+        if (axis.Length() == 0)
+        {
+            return axis;
+        }
+        return Vector2.Normalize(axis);
+    }
 
+    private void OnMouseMove(MouseHandler.MoveEvent ev)
+    {
+        axis.X += ev.dx;
+        axis.Y += ev.dy;
+
+        axis.X = Xt.MathF.Clamp(axis.X, -1, 1);
+        axis.Y = Xt.MathF.Clamp(axis.Y, -1, 1);
+    }
+
+    public void Dispose()
+    {
+        MouseHandler.OnMouseMove -= OnMouseMove;
+    }
 }
 
-public class LoaderView : View
+[Flags]
+public enum PosAlign
 {
-    string DeckName { get; set; } = "";
-    public DeckNames DeckNames { get; set; } = new();
-
-    public List<CardInfo> NewCards { get; set; } = new();
-    public List<CardInfo> DueCards { get; set; } = new();
-
-    public void Draw()
-    {
-    }
-
-    public void Update()
-    {
-    }
-
-    public async Task<DeckNames> LoadDecks(string deckName)
-    {
-        var resp = (await AnkiConnect.FetchDecks()).Unwrap();
-        DeckNames = resp;
-        return resp ?? new DeckNames();
-    }
-
-    public async Task<IEnumerable<CardInfo>> LoadCards(string deckName)
-    {
-
-        var resp = await Task.WhenAll(
-            AnkiConnect.FetchNewCards(deckName),
-            AnkiConnect.FetchAvailableCards(deckName)
-        );
-        var newCards = resp[0].Unwrap();
-        var dueCards = resp[1].Unwrap();
-
-        foreach (var card in newCards)
-        {
-            card.IsNew = true;
-        }
-
-        NewCards = newCards.ToList();
-        DueCards = dueCards.ToList();
-
-        return dueCards.Union(newCards);
-    }
+    Center = 0,
+    StartX = 1,
+    EndX = 2,
+    StartY = 4,
+    EndY = 8,
+    Start = StartX | StartY,
+    End = EndX | EndY,
 }

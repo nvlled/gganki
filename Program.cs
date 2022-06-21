@@ -48,9 +48,14 @@ public class Program : Scene
     {
         debugEnabled = debug;
         state = SharedState.self;
-        state.fontAsian = Graphics.NewFont("assets/togoshi.ttf", Config.fontSize);
         scriptLoader = new ScriptLoader(state);
         Keyboard.SetKeyRepeat(true);
+
+        state.fontAsian = Graphics.NewFont("assets/han-serif.otf", Config.fontSize);
+        state.fontMedium = Graphics.NewFont("assets/han-serif.otf", Config.fontSizeMedium);
+        state.fontRegular = state.fontAsian;
+        //state.fontAsian.SetLineHeight(0.1f);
+        //state.fontRegular.SetLineHeight(20.0f);
     }
 
     public void OnLoadDone(DeckNames deckNames)
@@ -184,16 +189,21 @@ public class Program : Scene
 
 
     }
+    public override void MouseMoved(float x, float y, float dx, float dy, bool isTouch)
+    {
+        base.MouseMoved(x, y, dx, dy, isTouch);
+        MouseHandler.DispatchMouseMove(new MouseHandler.MoveEvent(x, y, dx, dy, isTouch));
+    }
 
     public override void MousePressed(float x, float y, int button, bool isTouch)
     {
         base.MousePressed(x, y, button, isTouch);
-        MouseHandler.DispatchMousePress(new MouseHandler.Event(x, y, (MouseButton)button, isTouch));
+        MouseHandler.DispatchMousePress(new MouseHandler.ButtonEvent(x, y, (MouseButton)button, isTouch));
     }
     public override void MouseReleased(float x, float y, int button, bool isTouch)
     {
         base.MouseReleased(x, y, button, isTouch);
-        MouseHandler.DispatchMouseRelease(new MouseHandler.Event(x, y, (MouseButton)button, isTouch));
+        MouseHandler.DispatchMouseRelease(new MouseHandler.ButtonEvent(x, y, (MouseButton)button, isTouch));
     }
 
     public override void JoystickGamepadAxis(Joystick joystick, GamepadAxis axis, float value)
@@ -272,6 +282,8 @@ public class Program : Scene
         state.activeView.Update();
         scriptLoader.Update();
 
+        Callbacks.Update();
+
         var win = state.windowEntity;
         foreach (var c in win.GetComponents())
         {
@@ -289,12 +301,14 @@ public class Program : Scene
         state.activeView.Draw();
         scriptLoader.Draw();
 
+        Callbacks.Draw();
         var win = state.windowEntity;
         foreach (var c in win.GetComponents())
         {
             c.Draw(win);
         }
 
+        Graphics.SetFont(state.fontSmall);
         Graphics.Print(Love.Timer.GetFPS().ToString(), 20, Graphics.GetHeight() - Graphics.GetFont().GetHeight() * 1.2f);
 
         //Lua.Draw();

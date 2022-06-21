@@ -10,28 +10,21 @@ using AwaitableCoroutine;
 using MyNihongo.KanaDetector.Extensions;
 using Love.Misc;
 using static gganki_love.RandomContainer;
+using System.Threading.Tasks;
+using System.Text;
 
 public class Script : View
 {
-    //List<Monster> monsters = new List<Monster> { };
     List<View> subScripts = new List<View> { };
 
-    System.Random rand = new System.Random();
     public SharedState state;
 
-    //WeaponEntity sword;
-
-    //GAxis axisLeft = new GAxis(GAxisSide.Left, 50) { pos = new Vector2(100, Graphics.GetHeight() - 100) };
-    //GAxis axisRight = new GAxis(GAxisSide.Right, 50) { pos = new Vector2(Graphics.GetWidth() - 100, Graphics.GetHeight() - 100) };
-
-    //Plotter plotter;
-
-    Player testPlayer;
-    Camera cam;
-    World world;
     MonsterGroup monsters;
 
-    GameWithCoroutines game;
+    StartScreen startScreen;
+    HuntingGame game;
+
+    View currentView;
 
 
     public Script(SharedState state)
@@ -39,36 +32,17 @@ public class Script : View
         this.state = state;
         subScripts = new List<View> { };
 
-        game = new GameWithCoroutines(state);
+        game = new HuntingGame(state);
+        startScreen = new StartScreen(state);
+
+        currentView = game;
     }
 
-    public async Coroutine Test()
-    {
-        await Coroutine.DelayCount(60 * 2);
-        Console.WriteLine("sub coroutine started?");
-        await Coroutine.DelayCount(60 * 2);
-        Console.WriteLine("sub coroutine done");
-    }
 
     public void Load()
     {
 
-        game.Load();
-
-        /*
-		for (var i = 0; i < 20; i++)
-		{
-			var text = cards?[i]?.fields?["VocabKanji"]?.value ?? defaultText;
-			var mon = new Monster(TileID.RandomMonsterID(), text, state.fontAsian);
-			mon.pos = new Vector2(
-				state.rand.Next(-300, Graphics.GetWidth() + 300),
-				 -20
-			);
-			mon.target = testPlayer.entity;
-			monsters.Add(mon);
-		}
-		*/
-
+        currentView.Load();
 
 
         GamepadHandler.OnAxis += OnGamepadAxis;
@@ -85,8 +59,7 @@ public class Script : View
 
     public void Unload()
     {
-        Console.WriteLine("unload script");
-        game.Unload();
+        currentView.Unload();
         GamepadHandler.OnAxis -= OnGamepadAxis;
         GamepadHandler.OnPress -= OnGamepadPress;
 
@@ -96,37 +69,18 @@ public class Script : View
     public void Update()
     {
 
-        UpdateSubScripts();
         GAxis.left.Update();
         GAxis.right.Update();
-
         GAxis.right.buildMomentum = Gamepad.IsDown(GamepadButton.LeftShoulder)
                       || Keyboard.IsDown(KeyConstant.LShift);
 
-        game.Update();
+        currentView.Update();
     }
 
     public void Draw()
     {
-        DrawSubScripts();
-
-        game.Draw();
-
-        GAxis.left.Draw();
-        GAxis.right.Draw();
-
+        currentView.Draw();
     }
-
-    public void UpdateSubScripts()
-    {
-        foreach (var s in subScripts) s.Update();
-    }
-    public void DrawSubScripts()
-    {
-        foreach (var s in subScripts) s.Draw();
-    }
-
-    public Vector2 vec(float x, float y) { return new Vector2(x, y); }
 
 
 }
@@ -457,13 +411,11 @@ public class WeaponEntity
             var n = whirlwind.colorStep * 0.07f;
             if (color.Rf + n >= 1)
             {
-                Console.WriteLine("x");
                 color.Rf = 1;
                 whirlwind.colorStep = -1;
             }
             else if (color.Rf + n <= 0)
             {
-                Console.WriteLine("y");
                 color.Rf = 0;
                 whirlwind.colorStep = 1;
             }
@@ -1082,9 +1034,9 @@ public class ItemGroup
     PartitionedList<IEntity> foods = new PartitionedList<IEntity>(SharedState.self.worldTileSize);
 
     World? world;
-    public GameWithCoroutines game;
+    public HuntingGame game;
 
-    public ItemGroup(GameWithCoroutines g)
+    public ItemGroup(HuntingGame g)
     {
         game = g;
         this.world = game.world;
@@ -1187,15 +1139,15 @@ public class MonsterGroup
 
     Entity? defaultTarget;
     World? world;
-    public GameWithCoroutines game;
+    public HuntingGame game;
 
-    public MonsterGroup(GameWithCoroutines g)
+    public MonsterGroup(HuntingGame g)
     {
         game = g;
         this.world = game.world;
     }
 
-    public MonsterGroup(GameWithCoroutines g, Entity target) : this(g)
+    public MonsterGroup(HuntingGame g, Entity target) : this(g)
     {
         defaultTarget = target;
     }
@@ -1267,12 +1219,10 @@ public class MonsterGroup
         {
             var text = card?.GetField("VocabKanji") ?? "";
             var audioFilename = card?.GetField("VocabAudio") ?? "";
-            var damageText = card?.GetField("VocabDef") ?? "";
             var mon = SpawnMonster(text);
 
             mon.card = card;
             mon.audioFilename = audioFilename;
-            mon.damageText = damageText;
             mon.target = defaultTarget;
         }
     }
@@ -1396,7 +1346,6 @@ public struct Attacked : IMonsterState
     public Vector2 dir = Vector2.Zero;
     public IMonsterState? prevState = null;
 
-    public Vector2 popoverOffset = Vector2.Zero;
     Monster monster;
     public Attacked(Monster m) { monster = m; }
     public void Update()
@@ -1414,7 +1363,7 @@ public struct Attacked : IMonsterState
                     m.logicState = m.approaching;
                 }
             }
-            else if (m.attacked.elapsed == 0 || m.attacked.elapsed > .50f)
+            else if (m.attacked.elapsed == 0 || m.attacked.elapsed > .25f)
             {
                 var entityColor = (m.attacked.numBlinks * 10) % 2 == 0 ? Color.Red : Color.White;
                 m.attacked.elapsed = 0;
@@ -1423,7 +1372,6 @@ public struct Attacked : IMonsterState
             }
             m.pos += -m.attacked.dir * 1.5f;
             m.attacked.elapsed += Love.Timer.GetDelta();
-            m.attacked.popoverOffset += m.attacked.dir * 0.3f; ;
         }
 
     }
@@ -1612,9 +1560,8 @@ public class Monster : IPos
     public string text;
     public Color? textColor;
     public string audioFilename;
-    public string damageText;
 
-    Text textObject;
+    public TextEntity textObject;
 
     public MonsterGroup? group;
 
@@ -1659,7 +1606,8 @@ public class Monster : IPos
         this.text = text;
 
         font ??= Graphics.GetFont();
-        this.textObject = Graphics.NewText(font, text);
+        this.textObject = new TextEntity(text, font, (int)(entity.rect.Width * 7));
+
         InitState();
     }
 
@@ -1667,7 +1615,7 @@ public class Monster : IPos
     {
         var font = Graphics.GetFont();
         this.entity = Entity.Create(0);
-        this.textObject = Graphics.NewText(font, "");
+        this.textObject = new TextEntity("", font);
         InitState();
     }
     private void InitState()
@@ -1696,7 +1644,6 @@ public class Monster : IPos
 
     public bool HasMonstersAround(Monster m)
     {
-        //Console.WriteLine("huh: {0}, {1}, {2}", pos, m.pos, Vector2.Distance(pos, m.pos));
         return Vector2.Distance(pos, m.pos) < rect.DiagonalLength() * 2.0f;
     }
 
@@ -1707,6 +1654,11 @@ public class Monster : IPos
 
         if (logicState.ID != State.Dead && health <= 0)
         {
+            if (textObject.scale > 0.35f)
+            {
+                textObject.scale = 0.35f;
+            }
+            textObject.SetColor(Color.Gray);
             logicState = dead;
             OnMonsterKill(this);
         }
@@ -1717,8 +1669,8 @@ public class Monster : IPos
         entity.Draw();
         if ((flags & Monster.Flags.SubTarget) != 0)
         {
-            Graphics.SetColor(Color.Blue);
-            Graphics.Rectangle(DrawMode.Line, entity.rect);
+            //Graphics.SetColor(Color.Blue);
+            //Graphics.Rectangle(DrawMode.Line, entity.rect);
         }
 
         //Graphics.Rectangle(DrawMode.Line, entity.rect);
@@ -1728,14 +1680,31 @@ public class Monster : IPos
         var w = t.GetWidth();
         var h = t.GetHeight();
         var x = entity.rect.Center.X - w / 2;
-        var y = entity.rect.Top - h * 3 / 4;
-        var r = new RectangleF(x, y, w, h);
+        var y = entity.rect.Top - h * 1.4f;
+
+        t.pos = new Vector2(x, y);
 
         Graphics.SetColor(IsAlive() ? Color.White : Color.WhiteSmoke);
         Graphics.SetFont(SharedState.self.fontAsian);
 
+
+        Graphics.SetColor(textObject.bgColor);
+        Graphics.Polygon(
+            DrawMode.Fill,
+            new Vector2(rect.Center.X - 30, textObject.rect.Bottom),
+            new Vector2(rect.Center.X, rect.Top),
+            new Vector2(rect.Center.X + 30, textObject.rect.Bottom)
+        );
+        Graphics.SetColor(Color.Gray);
+        Graphics.Polygon(
+            DrawMode.Line,
+            new Vector2(rect.Center.X - 30, textObject.rect.Bottom),
+            new Vector2(rect.Center.X, rect.Top),
+            new Vector2(rect.Center.X + 30, textObject.rect.Bottom)
+        );
+
         Graphics.SetColor(textColor ?? entity.color);
-        Graphics.Draw(textObject, x, y);
+        textObject.Draw();
 
         Graphics.SetColor(entity.color);
         if (logicState.ID != State.Dead)
@@ -1747,23 +1716,6 @@ public class Monster : IPos
             Graphics.Rectangle(DrawMode.Line, entity.rect.Left, entity.rect.Bottom, entity.rect.Width, healthH);
         }
 
-
-        if (logicState.ID == State.Attacked && damageText != null && health < 50)
-        {
-            var c = pos + attacked.popoverOffset;
-            Graphics.SetColor(Color.WhiteSmoke);
-            Graphics.SetFont(SharedState.self.fontTiny);
-            Graphics.Print(damageText, c.X, c.Y);
-            Graphics.SetFont();
-        }
-        else if (!IsAlive())
-        {
-            var c = pos;
-            Graphics.SetColor(Color.WhiteSmoke);
-            Graphics.SetFont(SharedState.self.fontSmall);
-            Graphics.Print(damageText, c.X, c.Y);
-            Graphics.SetFont();
-        }
     }
     public bool CanDamage()
     {
@@ -1849,15 +1801,14 @@ public class Monster : IPos
         logicState = attacked;
         attacked.numBlinks = 0;
         attacked.elapsed = 0;
-        attacked.popoverOffset = Vector2.Zero;
         attacked.dir = attackDir;
 
     }
 
     public void Dispose()
     {
-        textObject.Clear();
-        textObject.Dispose();
+        //textObject.Clear();
+        //textObject.Dispose();
     }
 
     public bool IsAlive()
@@ -1867,7 +1818,7 @@ public class Monster : IPos
 
     public Monster Clone()
     {
-        var m = new Monster(this.entity.tileID, this.text);
+        var m = new Monster(this.entity.tileID, this.text, textObject.font);
         m.pos = pos;
         //m.entity.rect = rect;
         m.logicState = logicState;
@@ -1875,9 +1826,7 @@ public class Monster : IPos
         m.group = group;
         m.card = card;
         m.target = target;
-
         m.health = 100;
-        m.textObject = Graphics.NewText(textObject.GetFont(), m.text);
         m.logicState = new Idle();
 
         return m;
@@ -1885,8 +1834,7 @@ public class Monster : IPos
 
     public float GetTextSize(Font? font = null)
     {
-        font ??= textObject.GetFont();
-        return font.GetWidth(text);
+        return textObject.GetWidth();
     }
 }
 
@@ -1936,9 +1884,9 @@ public class Player
     public float damageElapse = 0;
     public float defence = 8.5f;
 
-    GameWithCoroutines game;
+    HuntingGame game;
 
-    public Player(GameWithCoroutines g)
+    public Player(HuntingGame g)
     {
         game = g;
 
@@ -1955,7 +1903,7 @@ public class Player
     {
         if (logicState == State.Normal)
         {
-            entity.pos += entity.speed * GAxis.left.activeDir;
+            entity.pos += entity.speed * game.input.GetMotion();
             dashing.cooldown += Love.Timer.GetDelta();
         }
         else if (logicState == State.Dashing)
@@ -2025,8 +1973,8 @@ public class Player
         UpdateCharacter();
         UpdateWeapon();
 
-        entity.dir = GAxis.left.activeDir;
-        entity.FaceDirectionX(GAxis.right.passiveDir);
+        entity.dir = game.input.GetMotion();
+        entity.FaceDirectionX(game.input.GetMotion2());
         entity.Update();
 
         var world = game.world;
@@ -2105,9 +2053,9 @@ public class Camera
     public Vector2 pos;
     public RectangleF innerRect;
     public Font font = Graphics.NewFont(18);
-    public GameWithCoroutines game;
+    public HuntingGame game;
 
-    public Camera(GameWithCoroutines g)
+    public Camera(HuntingGame g)
     {
         game = g;
         var center = SharedState.self.center;
@@ -2207,7 +2155,7 @@ public class World
 
     Canvas gridCanvas;
     Player player;
-    GameWithCoroutines game;
+    HuntingGame game;
 
     public Vector2 Center
     {
@@ -2220,7 +2168,7 @@ public class World
     public float Width { get { return size.X; } }
     public float Height { get { return size.Y; } }
 
-    public World(GameWithCoroutines g)
+    public World(HuntingGame g)
     {
         game = g;
         this.player = game.player;
@@ -2347,7 +2295,7 @@ public class FX
     }
 }
 
-public class GameWithCoroutines : View
+public class HuntingGame : View
 {
 
     public enum State { Initializing, Playing, Clear, Gameover }
@@ -2456,10 +2404,16 @@ public class GameWithCoroutines : View
     public List<CardInfo> allCards = new List<CardInfo>();
     public int cardIndex = 0;
 
+    public SimpleMenu gameMenu = new SimpleMenu(new[] { "new game", "options", "exit" });
+
+    public GameInput input = new();
+
+
+    CoroutineControl ctrl;
 
     //public List<Monster> killedMonsters = new List<Monster>();
 
-    public GameWithCoroutines(SharedState state)
+    public HuntingGame(SharedState state)
     {
         this.state = state;
 
@@ -2472,8 +2426,10 @@ public class GameWithCoroutines : View
 
         var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
         allCards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
-        //allCards.Sort((a, b) => Random.Shared.Next(-1, 2));
 
+        gameMenu.align = PosAlign.StartX;
+        //gameMenu.SetPosition(new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2));
+        gameMenu.SetPosition(new Vector2(50, Graphics.GetHeight() / 2));
 
     }
 
@@ -2503,6 +2459,19 @@ public class GameWithCoroutines : View
 	}
 	*/
 
+    public void RemoveUnwantedTags(CardInfo card, string field)
+    {
+        if (card.HasField(field))
+        {
+            var text = card.fields?[field]?.value;
+            if (text != null)
+            {
+                text = Regex.Replace(text, @"\<.*?\>", "");
+                text = Regex.Replace(text, @"&nbsp;", " ");
+                card.fields[field].value = text;
+            }
+        }
+    }
     public void RemoveUnwantedText(CardInfo card, string field)
     {
         if (card.HasField(field))
@@ -2510,8 +2479,8 @@ public class GameWithCoroutines : View
             var text = card.fields?[field]?.value;
             if (text != null)
             {
-                text = Regex.Replace(text, @"\[.*?\]", " ");
-                text = Regex.Replace(text, @"\<.*?\>", " ");
+                text = Regex.Replace(text, @"\[.*?\]", "");
+                text = Regex.Replace(text, @"\<.*?\>", "");
                 text = Regex.Replace(text, @"&nbsp;", " ");
                 card.fields[field].value = text;
             }
@@ -2522,6 +2491,8 @@ public class GameWithCoroutines : View
         RemoveUnwantedText(card, "VocabKanji");
         RemoveUnwantedText(card, "SentKanji");
         RemoveUnwantedText(card, "SentEng");
+        RemoveUnwantedTags(card, "SentFurigana");
+        RemoveUnwantedTags(card, "VocabFurigana");
     }
 
     public List<CardInfo> CreateCards()
@@ -2539,11 +2510,6 @@ public class GameWithCoroutines : View
             RemoveUnwantedText(card, "VocabKanji");
             RemoveUnwantedText(card, "SentKanji");
             RemoveUnwantedText(card, "SentEng");
-
-            //card.fields["VocabKanji"].value += card.fields["VocabKanji"].value;
-
-
-            Console.WriteLine("Card> {0},{1}", card.cardId, card.GetField("SentKanji"));
         }
 
         return cards;
@@ -2676,7 +2642,8 @@ public class GameWithCoroutines : View
         components.RemoveUpdate(UpdatePlayerAction);
         components.RemoveUpdate(UpdateMonsterCollision);
 
-        await ctrl.AwaitAnyKey();
+        await input.PressAny(ctrl, ActionType.ButtonA, ActionType.ButtonB);
+        //await ctrl.AwaitAnyKey();
     }
 
     public async Coroutine StartGameScript()
@@ -2689,7 +2656,7 @@ public class GameWithCoroutines : View
         monsterGroup.Dispose();
         monsterGroup = new MonsterGroup(this, player.entity);
 
-        CoroutineControl ctrl = new CoroutineControl();
+        ctrl = new CoroutineControl();
         var tryAgain = false;
         var skipChooseAnswer = false;
         while (true)
@@ -2705,6 +2672,7 @@ public class GameWithCoroutines : View
 
             gameState = State.Playing;
             var startHunt = true;
+
             if (!tryAgain && !skipChooseAnswer)
             {
                 var correct = await StartChooseAnswerScript(ctrl);
@@ -2752,7 +2720,8 @@ public class GameWithCoroutines : View
             {
                 tryAgain = false;
                 components.AddDraw(DrawClear);
-                await ctrl.AwaitAnyKey();
+                //await ctrl.AwaitAnyKey();
+                await input.PressAny(ctrl, ActionType.ButtonA, ActionType.ButtonB);
             }
             else if (gameState == State.Gameover)
             {
@@ -2843,25 +2812,25 @@ public class GameWithCoroutines : View
 
         var card = playing.card;
         var choices = CreateChoices(card, 7);
-        var (pre, vocab, post, top) = CreateQuestion(card);
-        Console.WriteLine((
-            pre?.text,
-            vocab.text,
-            post?.text,
-            top?.text,
-            card.GetExample()
-        ));
+        var (vocab, example) = CreateQuestion(card);
 
         questionMonsters.Add(vocab);
         highligtedMonsters.Add(vocab);
-        if (pre != null) questionMonsters.Add(pre);
-        if (post != null) questionMonsters.Add(post);
-        if (top != null) highligtedMonsters.Add(top);
-
         vocab.defense = 2;
-        if (pre != null) pre.defense = 2;
-        if (post != null) post.defense = 2;
-        if (top != null) top.defense = 2;
+        if (example != null)
+        {
+            highligtedMonsters.Add(example);
+            example.defense = 2;
+            var __ = example.textObject.TypeWrite(ctrl, Color.Aqua, 10).AndThen(async () =>
+            {
+                await Coroutine.DelayCount(120);
+                var (i, j) = example.text.FindSubstringIndex(vocab.text);
+                if (i > 0 && j < example.text.Length - 1)
+                {
+                    example.textObject.SetColor(Color.Yellow, i, j);
+                }
+            });
+        }
 
         foreach (var m in choices)
         {
@@ -2871,8 +2840,10 @@ public class GameWithCoroutines : View
             m.logicState = m.exploring;
         }
 
-        // TODO: get new cards
         // TODO: refetch cards on new game
+        // TODO: disable damage on choose answer 
+
+        // TODO: game menus
 
         // TODO: disable audio play when hitting english texts
         // TODO: await confirm (mouseclick, enter key/escape, gpad letter buttons)
@@ -2972,70 +2943,89 @@ public class GameWithCoroutines : View
         return choices;
     }
 
-    (Monster?, Monster, Monster?, Monster?) CreateQuestion(CardInfo card)
+    (Monster, Monster?) CreateQuestion(CardInfo card)
     {
         var vocab = card.GetVocab() ?? "";
         var example = card.GetExample() ?? "";
 
         var qpos = player.pos + Vector2.UnitY * player.entity.rect.DiagonalLength() * 1.5f;
-        var mid = monsterGroup.SpawnMonster(vocab);
-        mid.audioFilename = card.GetField("VocabAudio");
-        mid.pos = qpos;
-        mid.target = null;
-        mid.textColor = Color.Yellow;
 
-        if (!card.HasExample())
+        var monVocab = monsterGroup.SpawnMonster(vocab);
+        monVocab.audioFilename = card.GetField("VocabAudio");
+        monVocab.pos = qpos + Vector2.One * monVocab.rect.Height * 2.0f;
+        monVocab.target = null;
+
+        Monster? monExample = null;
+        if (!string.IsNullOrEmpty(example))
         {
-            return (null, mid, null, null);
+            monExample = monsterGroup.SpawnMonster(example);
+            monExample.audioFilename = card.GetField("SentAudio");
+            monExample.pos = qpos;
+            monExample.target = null;
+
+            monExample.textObject.autoScale = false;
+            monExample.textObject.scale = 1;
+
+            var (i, j) = example.FindSubstringIndex(vocab);
+            if (i > 0 && j < example.Length - 1)
+            {
+                monExample.textObject.SetColor(Color.Yellow, i, j);
+            }
+        }
+        else
+        {
+            monVocab.pos = qpos;
         }
 
-
-        var (a, v, b) = example.DivideBy(vocab);
-
-        Monster? bottom = null;
-
-        if (vocab != v)
-        {
-            monsterGroup.Remove(mid);
-            mid = monsterGroup.SpawnMonster(v, mid.entity.tileID);
-            mid.audioFilename = card.GetField("VocabAudio");
-            mid.pos = qpos;
-            mid.target = null;
-            mid.textColor = Color.Yellow;
-
-            bottom = monsterGroup.SpawnMonster(vocab);
-        }
-
-        var pre = string.IsNullOrEmpty(a.Trim()) ? null : monsterGroup.SpawnMonster(a);
-        var post = string.IsNullOrEmpty(b.Trim()) ? null : monsterGroup.SpawnMonster(b);
-
-        if (pre != null) { pre.audioFilename = card.GetField("SentAudio"); }
-        if (post != null) { post.audioFilename = card.GetField("SentAudio"); }
-        if (bottom != null) { bottom.audioFilename = card.GetField("VocabAudio"); }
-
-        var fontAsian = SharedState.self.fontAsian;
-        if (pre != null)
-        {
-            pre.pos = qpos - Vector2.UnitX * (mid.GetTextSize(fontAsian) / 2 + pre.GetTextSize(fontAsian) / 2);
-            pre.target = null;
-        }
+        return (monVocab, monExample);
 
 
-        if (post != null)
-        {
-            post.pos = qpos + Vector2.UnitX * (mid.GetTextSize(fontAsian) / 2 + post.GetTextSize(fontAsian) / 2);
-            post.target = null;
-        }
 
-        if (bottom != null)
-        {
-            bottom.pos = qpos + Vector2.UnitY * fontAsian.GetHeight() * 2;
-            bottom.target = null;
-            bottom.entity.color = Color.Gold;
-        }
+        /*
+                Monster? bottom = null;
+
+                if (vocab != v)
+                {
+                    monsterGroup.Remove(monExample);
+                    monExample = monsterGroup.SpawnMonster(v, monExample.entity.tileID);
+                    monExample.audioFilename = card.GetField("VocabAudio");
+                    monExample.pos = qpos;
+                    monExample.target = null;
+                    monExample.textColor = Color.Yellow;
+
+                    bottom = monsterGroup.SpawnMonster(vocab);
+                }
+
+                var pre = string.IsNullOrEmpty(a.Trim()) ? null : monsterGroup.SpawnMonster(a);
+                var post = string.IsNullOrEmpty(b.Trim()) ? null : monsterGroup.SpawnMonster(b);
+
+                if (pre != null) { pre.audioFilename = card.GetField("SentAudio"); }
+                if (post != null) { post.audioFilename = card.GetField("SentAudio"); }
+                if (bottom != null) { bottom.audioFilename = card.GetField("VocabAudio"); }
+
+                var fontAsian = SharedState.self.fontAsian;
+                if (pre != null)
+                {
+                    pre.pos = qpos - Vector2.UnitX * (mid.GetTextSize(fontAsian) / 2 + pre.GetTextSize(fontAsian) / 2);
+                    pre.target = null;
+                }
 
 
-        return (pre, mid, post, bottom);
+                if (post != null)
+                {
+                    post.pos = qpos + Vector2.UnitX * (mid.GetTextSize(fontAsian) / 2 + post.GetTextSize(fontAsian) / 2);
+                    post.target = null;
+                }
+
+                if (bottom != null)
+                {
+                    bottom.pos = qpos + Vector2.UnitY * fontAsian.GetHeight() * 2;
+                    bottom.target = null;
+                    bottom.entity.color = Color.Gold;
+                }
+        */
+
+
     }
 
     public async Coroutine StartHuntScript(CoroutineControl ctrl)
@@ -3161,7 +3151,6 @@ public class GameWithCoroutines : View
         monsterGroup.OnHit -= OnDefaultMonsterHit;
         using var _ = Defer.Run(() =>
         {
-            Console.WriteLine(" ****************** defer start vocab part script ****************** ");
             monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
             monsterGroup.OnHit -= OnTargetHit;
         });
@@ -3425,6 +3414,19 @@ public class GameWithCoroutines : View
 
         });
 
+        gameMenu.Draw();
+
+
+        //Graphics.SetColor(Color.Red);
+        //Graphics.Rectangle(DrawMode.Line, testText.rect);
+        //Graphics.Circle(DrawMode.Fill, p, 10);
+
+        //var s = new ColoredString[]{
+        //    new("line1\n", Color.Red),
+        //    new("line2\n", Color.Orange),
+        //};
+        //Graphics.SetColor(Color.White);
+        //Graphics.Printf(new ColoredStringArray(s), 50, 80, 300, AlignMode.Center);
     }
 
     public void DrawTargets()
@@ -3498,6 +3500,7 @@ public class GameWithCoroutines : View
     {
         clear.gpr.ResetLine();
         var card = playing.card;
+        var maxWidth = Graphics.GetWidth() * 3f / 4f;
 
         Graphics.SetColor(clear.bgColor);
         Graphics.Rectangle(DrawMode.Fill, clear.rect);
@@ -3509,7 +3512,7 @@ public class GameWithCoroutines : View
         clear.gpr.font = SharedState.self.fontRegular;
         clear.gpr.Print("Elapsed: {0} seconds", MathF.Floor(elapsed));
         clear.gpr.font = SharedState.self.fontAsian;
-        clear.gpr.Print("{0} / {1}", card.GetField("VocabKanji"), card.GetField("VocabDef"));
+        clear.gpr.Printf($"{card.GetField("VocabFurigana")} / {card.GetField("VocabDef")}", maxWidth, AlignMode.Left);
 
 
         if (card.HasExample())
@@ -3517,11 +3520,11 @@ public class GameWithCoroutines : View
             clear.gpr.font = SharedState.self.fontSmall;
             clear.gpr.Print(" ");
             clear.gpr.font = SharedState.self.fontAsian;
-            clear.gpr.Print(card.GetField("SentKanji"));
+            clear.gpr.Printf(card.GetField("SentFurigana") ?? "", maxWidth);
             clear.gpr.font = SharedState.self.fontSmall;
             clear.gpr.Print(" ");
             clear.gpr.font = SharedState.self.fontMedium;
-            clear.gpr.Print(card.GetField("SentEng"));
+            clear.gpr.Printf(card.GetField("SentEng") ?? "", maxWidth);
         }
 
     }
@@ -3572,7 +3575,6 @@ public class GameWithCoroutines : View
 
     public void OnTargetHit(Monster m)
     {
-        Console.WriteLine("on target hit");
         var canAttack = true;
         var isTarget = false;
         foreach (var (t, i) in playing.subTargets.WithIndex())
@@ -3596,9 +3598,13 @@ public class GameWithCoroutines : View
         UpdateMana(manaGain);
     }
 
+    public void StartBackgroundCoroutine(Func<Coroutine> fn)
+    {
+        runner.Create(fn);
+    }
+
     public void OnDefaultMonsterHit(Monster m)
     {
-        Console.WriteLine("on default hit");
         var targetMonster = playing.subIndex >= 0 && playing.subIndex < playing.subTargets.Count()
         ? playing.subTargets[playing.subIndex] : null;
         var isTarget = m.text == targetMonster?.text;
@@ -3614,7 +3620,23 @@ public class GameWithCoroutines : View
             UpdateMana(manaGain);
         }
 
-
+        if (m.health < 50 && m.health > 0 && !m.textObject.typewriting && m.text != m.card.GetExample())
+        {
+            StartBackgroundCoroutine(async () =>
+            {
+                // TODO: set example text
+                var text = m.textObject.text == m.card.GetVocabDef() ? m.card.GetVocab() : m.card.GetVocabDef();
+                if (text != null)
+                {
+                    m.textObject.SetText(text);
+                    await m.textObject.TypeWrite(ctrl, Color.Red, 3);
+                }
+            });
+        }
+        else if (!m.IsAlive())
+        {
+            m.textObject.SetText(m.text);
+        }
     }
 
     public void OnItemPickup(IEntity item)
@@ -3637,134 +3659,23 @@ public class GameWithCoroutines : View
     }
 
 
-    /*
-	public void UpdateTargets()
-	{
-		foreach (var m in killedMonsters)
-		{
-		}
-	}
-
-	public void NextHuntState()
-	{
-		playing.targetIndex = 0;
-
-		foreach (var m in playing.subTargets)
-		{
-			monsterGroup.Remove(m);
-			playing.target.pos = m.pos;
-		}
-
-		playing.subTargets.Clear();
-		playing.maxRounds = 2;
-		playing.rounds = 1;
-
-		var current = playing.state;
-		var target = playing.target;
-		if (current == HuntState.Init)
-		{
-			playing.subTargets.Add(target);
-
-			if (target.text.Length <= 1)
-			{
-				playing.maxRounds += 2;
-			}
-			if (!target.card.HasExample())
-			{
-				playing.maxRounds += 2;
-			}
-
-			playing.state = HuntState.Vocab;
-		}
-		else if (current == HuntState.Vocab)
-		{
-			TransitionVocab(target);
-		}
-		else if (current == HuntState.VocabParts)
-		{
-			TransitionVocabParts(target);
-		}
-		else if (current == HuntState.Example)
-		{
-			TransitionExample(target);
-		}
-		else if (current == HuntState.ExampleParts)
-		{
-			TransitionExampleParts(target);
-		}
-		else
-		{
-			Console.WriteLine("huh: {0}", playing.state);
-			ClearLevel();
-		}
-
-		monsterGroup.AddAll(playing.subTargets);
-
-	}
-
-	private void TransitionVocab(Monster target)
-	{
-
-		if (target.text.Length <= 1)
-		{
-			TransitionVocabParts(target);
-		}
-		else
-		{
-			playing.subTargets.AddRange(SplitMonsterBy(target, "VocabKanji"));
-			playing.state = HuntState.VocabParts;
-		}
-	}
-	private void TransitionVocabParts(Monster target)
-	{
-		if (target?.card?.HasExample() ?? false)
-		{
-			Console.WriteLine("to example {0}", target.card.GetField("SentKanji"));
-			playing.subTargets.Add(CreateExampleMonster(target));
-			playing.state = HuntState.Example;
-		}
-		else
-		{
-			ClearLevel();
-		}
-	}
-	private void TransitionExample(Monster target)
-	{
-		Console.WriteLine("to example parts");
-		playing.subTargets.AddRange(SplitMonsterBy(target, "SentKanji"));
-		playing.state = HuntState.ExampleParts;
-	}
-	private void TransitionExampleParts(Monster target)
-	{
-		ClearLevel();
-	}
-
-
-	public void ClearLevel()
-	{
-
-		playing.state = HuntState.Clear;
-		gameState = State.Clear;
-	}
-	*/
 
     public (bool charging, bool released) GetPlayerCharge()
     {
-        var gpadCharge = Xt.Gamepad.ChargeTime(GamepadButton.B);
-        var gpadRelease = Xt.Gamepad.ReleaseCharge(GamepadButton.B);
-        var mouseCharge = Xt.Mouse.ChargeTime(MouseButton.LeftButton);
-        var mouseRelease = Xt.Mouse.ReleaseCharge(MouseButton.LeftButton);
+        var charge = input.GetChargeTime(ActionType.ButtonA);
+        var release = input.GetReleaseChargeTime(ActionType.ButtonA);
         return (
-            gpadCharge >= 1 || mouseCharge >= 1,
-            gpadRelease >= 1 || mouseRelease >= 1
+            charge >= 1,
+            release >= 1
         );
     }
 
 
     public void UpdatePlayerAction()
     {
-
         player.Update();
+
+        // TODO: use GameInput
 
         var (charging, released) = GetPlayerCharge();
         if (released)
@@ -3777,15 +3688,15 @@ public class GameWithCoroutines : View
             player.DoCharge1();
         }
 
-        if (Gamepad.IsPressed(GamepadButton.B) || Mouse.IsPressed(MouseButton.LeftButton))
+        if (input.IsPressed(ActionType.ButtonA))
         {
             player.PerformMeleeAttack();
         }
-        else if (Gamepad.IsPressed(GamepadButton.X) || Mouse.IsPressed(MouseButton.RightButton))
+        else if (input.IsPressed(ActionType.ButtonB))
         {
             player.PerformLongAttack();
         }
-        else if (Gamepad.IsPressed(GamepadButton.A) || Keyboard.IsPressed(KeyConstant.Space))
+        else if (input.IsPressed(ActionType.ButtonX))
         {
             player.PerformDash();
         }
@@ -3856,7 +3767,10 @@ public class GameWithCoroutines : View
 
     public void Update()
     {
-        elapsed += Love.Timer.GetDelta();
+        if (gameState == State.Playing)
+        {
+            elapsed += Love.Timer.GetDelta();
+        }
 
         cam.Update();
         cam.RestrictWithin(player.pos);
@@ -3882,24 +3796,23 @@ public class GameWithCoroutines : View
             cam.ZoomOut();
         }
 
+        // TODO: use gameInput
         /*
-		if (gameState == State.Playing)
-		{
-			UpdatePlaying();
-		}
-		else if (gameState == State.Gameover)
-		{
-			UpdateGameover();
-		}
-		else if (gameState == State.Clear)
-		{
-			UpdateClear();
-		}
-		else if (gameState == State.Initializing)
-		{
-			gameState = State.Playing;
-		}
-		*/
+        foreach (var actionType in Enum.GetValues(typeof(GameInput.ActionType)).Cast<GameInput.ActionType>())
+        {
+            if (gameInput.IsPressed(actionType))
+            {
+                Console.WriteLine("pressed {0}", actionType);
+            }
+        }
+        var dir = gameInput.GetMotion();
+        if (dir.Length() > 0)
+        {
+            Console.WriteLine("motion {0}", dir);
+        }
+        */
+
+
 
     }
 
@@ -3912,728 +3825,9 @@ public class GameWithCoroutines : View
         cam.Dipose();
         gameover.bigFont.Dispose();
         gameover.smallFont.Dispose();
+        input.Dispose();
     }
 }
-
-
-/*
-public class Game : View
-{
-	public enum State { Initializing, Playing, Clear, Gameover }
-	public enum HuntState { Init, Vocab, VocabParts, Example, ExampleParts, Clear }
-
-	public class Playing
-	{
-		public int targetIndex = 0;
-		public HuntState state = HuntState.Vocab;
-		public List<Monster> subTargets = new List<Monster>();
-		public Monster target = new Monster();
-		public int rounds;
-		public int maxRounds;
-	}
-
-	public class Clear
-	{
-		public float width = Graphics.GetWidth() * 9 / 10;
-		public float height = Graphics.GetHeight() * 3 / 4;
-		public Color bgColor = new Color(15, 15, 15, 180);
-		public RectangleF rect;
-
-		public Gpr gpr = new Gpr();
-
-		public Clear()
-		{
-			var x = Graphics.GetWidth() / 2 - width / 2;
-			var y = Graphics.GetHeight() / 2 - height / 2;
-			rect = new RectangleF(
-				x,
-				y,
-				width,
-				height
-			);
-
-			gpr.pos = new Vector2(x + 20, y + 20);
-		}
-
-	}
-
-	public class Gameover
-	{
-		public float opacity = 0;
-		public Color color = new Color(0.5f, 0, 0, 1);
-		public Font bigFont = Graphics.NewFont(120);
-		public Font smallFont = Graphics.NewFont(30);
-		public Text gameoverText;
-		public Text subText;
-
-		public Gameover()
-		{
-			gameoverText = Graphics.NewText(bigFont, "Game over");
-			subText = Graphics.NewText(smallFont, "<Press any key to play again>");
-		}
-	}
-
-
-	SharedState state;
-	Player player;
-	Camera cam;
-	World world;
-	MonsterGroup monsterGroup;
-
-	public State gameState = State.Playing;
-	public Gameover gameover = new Gameover();
-	public Playing playing = new Playing();
-	public Clear clear = new Clear();
-	public float elapsed = 0;
-
-	public List<Monster> killedMonsters = new List<Monster>();
-
-	public Game(SharedState state)
-	{
-		this.state = state;
-
-		cam = new Camera();
-		player = new Player();
-		world = new World(player);
-		monsterGroup = new MonsterGroup();
-
-	}
-	public void Load()
-	{
-		KeyHandler.OnKeyPress += KeyPressed;
-		GamepadHandler.OnPress += GamepadPressed;
-
-		StartGame();
-	}
-
-	private void GamepadPressed(Joystick arg1, GamepadButton arg2)
-	{
-		HandleGameoverInput();
-	}
-
-	private void KeyPressed(KeyConstant key, Scancode scancode, bool isRepeat)
-	{
-		HandleGameoverInput();
-	}
-
-	public void HandleGameoverInput()
-	{
-		if (gameState == State.Gameover && gameover.opacity >= 1)
-		{
-			monsterGroup.Dispose();
-			StartGame();
-		}
-	}
-
-	public void RemoveUnwantedText(CardInfo card, string field)
-	{
-		if (card.HasField(field))
-		{
-			var text = card.fields?[field]?.value;
-			if (text != null)
-			{
-				text = Regex.Replace(text, @"\[.*?\]", " ");
-				text = Regex.Replace(text, @"\<.*?\>", " ");
-				card.fields[field].value = text;
-			}
-		}
-	}
-
-	public List<CardInfo> CreateCards()
-	{
-		var numText = 15;
-		var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
-		var cards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
-
-		cards.Sort((a, b) => Random.Shared.Next(-1, 2));
-
-		cards = cards.Take(numText).ToList();
-
-		foreach (var card in cards)
-		{
-			RemoveUnwantedText(card, "VocabKanji");
-			RemoveUnwantedText(card, "SentKanji");
-			RemoveUnwantedText(card, "SentEng");
-
-			//card.fields["VocabKanji"].value += card.fields["VocabKanji"].value;
-
-
-			Console.WriteLine("Card> {0},{1}", card.cardId, card.GetField("SentKanji"));
-		}
-
-		return cards;
-	}
-
-
-	public void StartGame()
-	{
-
-		cam = new Camera();
-		player = new Player();
-		world = new World(player);
-		var cards = CreateCards();
-
-		AnkiAudioPlayer.LoadCardAudios(cards);
-
-		player.entity.pos = state.center;
-
-		//cards.AddRange(cards);
-
-		monsterGroup = MonsterGroup.CreateFromCards(cards);
-
-		var monsters = monsterGroup.Iterate().ToArray();
-		foreach (var m in monsters)
-		{
-			m.target = player.entity;
-			m.OnMonsterKill += OnMonsterKill;
-		}
-
-
-		if (monsters.Length > 0)
-		{
-			playing.targetIndex = 0;
-			playing.target = monsters[0];
-
-
-			playing.state = HuntState.Init;
-			NextHuntState();
-
-		}
-
-		gameState = State.Playing;
-	}
-
-	public Monster CreateExampleMonster(Monster m)
-	{
-		var font = SharedState.self.fontAsian;
-		var text = m.card?.GetField("SentKanji") ?? m.text;
-		var audioFilename = m.card?.GetField("SentAudio") ?? m.text;
-		var newMonster = new Monster(m.entity.tileID, text, font);
-
-		newMonster.target = m.target;
-		newMonster.audioFilename = audioFilename;
-		newMonster.pos = m.pos;
-		newMonster.card = m.card;
-		newMonster.entity.scale = 5;
-		newMonster.defense = 5;
-		newMonster.OnMonsterKill += OnMonsterKill;
-		newMonster.Flee(3);
-
-		return newMonster;
-	}
-
-	public Monster[] SplitMonsterBy(Monster m, string fieldName)
-	{
-		var text = m.card?.GetField(fieldName) ?? m.text;
-		var subMonsters = new List<Monster>();
-		var font = SharedState.self.fontAsian;
-		var audioFilename = m.card?.GetField(fieldName == "SentKanji" ? "SentAudio" : "VocabAudio") ?? m.text;
-		foreach (var ch in text)
-		{
-			if (char.IsWhiteSpace(ch))
-			{
-				continue;
-			}
-			var newMonster = new Monster(TileID.RandomMonsterID(), ch.ToString(), font);
-			newMonster.pos = m.pos;
-			newMonster.target = m.target;
-			newMonster.card = m.card;
-			newMonster.audioFilename = audioFilename;
-			newMonster.OnMonsterKill += OnMonsterKill;
-			newMonster.defense = 0.3f;
-			newMonster.Flee(3);
-
-			subMonsters.Add(newMonster);
-		}
-		return subMonsters.ToArray();
-	}
-
-		//public Monster[] SplitMonsterByExample(Monster m)
-		//{
-		//	//var text = m.card?.GetField("SentKanji") ?? m.text;
-		//	if (!m.card.HasExample())
-		//	{
-		//		Console.WriteLine("no SentKanji");
-		//		return new Monster[0];
-		//	}
-
-		//	var text = m.card?.GetField("SentKanji") ?? m.text;
-		//	var subMonsters = new List<Monster>();
-		//	var font = SharedState.self.fontAsian;
-		//	var audioFilename = m.card?.GetField("SentAudio") ?? m.text;
-		//	foreach (var ch in text)
-		//	{
-		//		if (char.IsWhiteSpace(ch))
-		//		{
-		//			continue;
-		//		}
-		//		var newMonster = new Monster(m.entity.tileID, ch.ToString(), font);
-		//		newMonster.pos = m.pos;
-		//		newMonster.target = m.target;
-		//		newMonster.card = m.card;
-		//		newMonster.audioFilename = audioFilename;
-		//		newMonster.OnMonsterKill += OnMonsterKill;
-		//		subMonsters.Add(newMonster);
-		//	}
-		//	return subMonsters.ToArray();
-		//}
-
-	public void Draw()
-	{
-
-		cam.StartDraw();
-		{
-			world.Draw();
-			player.Draw();
-			monsterGroup.Draw();
-			DrawTargets();
-		}
-
-		cam.EndDraw();
-
-		if (gameState == State.Playing)
-		{
-			DrawInterface();
-		}
-		else if (gameState == State.Gameover)
-		{
-			DrawGameover();
-		}
-		else if (gameState == State.Clear)
-		{
-			DrawClear();
-		}
-
-	}
-
-	public void DrawTargets()
-	{
-		if (playing.subTargets.Count() == 0)
-		{
-			return;
-		}
-		var targetMonster = playing.subTargets[playing.targetIndex];
-		foreach (var m in playing.subTargets)
-		{
-			//Graphics.SetColor(m == targetMonster ? Color.Red : Color.White);
-			//Graphics.Rectangle(DrawMode.Line, m.rect);
-		}
-	}
-
-	public void DrawInterface()
-	{
-		player.DrawInterface();
-
-		{
-			var i = 0;
-			var coloredText = new List<ColoredString>();
-			foreach (var mon in playing.subTargets)
-			{
-				var c = i < playing.targetIndex ? Color.White
-					: i == playing.targetIndex ? Color.PaleGreen
-					: Color.Gray;
-				i++;
-				coloredText.Add(new ColoredString(mon.text, c));
-			}
-
-			var text = new ColoredStringArray(coloredText.ToArray());
-			var font = SharedState.self.fontAsian;
-			var pos = new Vector2(0, Graphics.GetHeight() - font.GetHeight() * 1.2f);
-			Graphics.SetFont(SharedState.self.fontAsian);
-			Graphics.SetColor(Color.White);
-			Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth(), AlignMode.Center);
-
-			font = SharedState.self.fontMedium;
-			Graphics.SetFont(font);
-			Graphics.Printf(
-				string.Format("{0}/{1}", playing.rounds, playing.maxRounds),
-				pos.X, pos.Y - font.GetHeight(), Graphics.GetWidth(), AlignMode.Center
-			);
-		}
-
-		{
-			var font = SharedState.self.fontMedium;
-			var pos = new Vector2(Graphics.GetWidth() / 2, font.GetHeight() / 2);
-			var card = playing.target.card;
-			var s = playing.state;
-			var text = s == HuntState.VocabParts || (playing.rounds >= 2 && s == HuntState.Vocab)
-				? card?.GetField("VocabDef")
-				: s == HuntState.VocabParts
-				? card?.GetField("SentEng")
-				: "";
-
-			Graphics.SetColor(Color.White);
-			Graphics.SetFont(font);
-			Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth() / 2 - 20, AlignMode.Right);
-		}
-	}
-
-	public void UpdateClear()
-	{
-		clear.gpr.ResetLine();
-	}
-
-	public void DrawClear()
-	{
-		var card = playing.target.card;
-
-		Graphics.SetColor(clear.bgColor);
-		Graphics.Rectangle(DrawMode.Fill, clear.rect);
-		Graphics.SetColor(Color.White);
-
-		clear.gpr.font = SharedState.self.fontSmall;
-		clear.gpr.Print("id={0}", card.cardId);
-
-		clear.gpr.font = SharedState.self.fontRegular;
-		clear.gpr.Print("Elapsed: {0} seconds", MathF.Floor(elapsed));
-		clear.gpr.font = SharedState.self.fontAsian;
-		clear.gpr.Print("{0} / {1}", card.GetField("VocabKanji"), card.GetField("VocabDef"));
-
-
-		if (card.HasExample())
-		{
-			clear.gpr.font = SharedState.self.fontSmall;
-			clear.gpr.Print(" ");
-			clear.gpr.font = SharedState.self.fontAsian;
-			clear.gpr.Print(card.GetField("SentKanji"));
-			clear.gpr.font = SharedState.self.fontSmall;
-			clear.gpr.Print(" ");
-			clear.gpr.font = SharedState.self.fontMedium;
-			clear.gpr.Print(card.GetField("SentEng"));
-		}
-
-	}
-
-	public void DrawGameover()
-	{
-
-		var bigText = gameover.gameoverText;
-		var smallText = gameover.subText;
-
-		Graphics.SetColor(gameover.color);
-		Graphics.SetFont(gameover.bigFont);
-		Graphics.Draw(bigText, state.center.X - bigText.GetWidth() / 2, state.center.Y - bigText.GetHeight() / 2);
-
-		Graphics.SetFont();
-		if (gameover.opacity >= 1)
-		{
-			Graphics.Draw(smallText, state.center.X - smallText.GetWidth() / 2, state.center.Y + bigText.GetHeight() - smallText.GetHeight() / 2);
-		}
-	}
-
-	public void UpdateGameover()
-	{
-		if (gameover.opacity < 1)
-		{
-			gameover.opacity += 0.01f;
-			if (gameover.opacity > 1)
-			{
-				gameover.opacity = 1;
-			}
-			gameover.color.Rf = gameover.opacity;
-		}
-	}
-
-	public void OnMonsterKill(Monster m)
-	{
-		killedMonsters.Add(m);
-	}
-
-	public void UpdateTargets()
-	{
-		foreach (var m in killedMonsters)
-		{
-			if (playing.targetIndex >= playing.subTargets.Count())
-			{
-				break;
-			}
-			Console.WriteLine("killed {0}", m.text);
-
-			var target = playing.subTargets[playing.targetIndex];
-			if (m != target)
-			{
-				if (m.text != target.text)
-				{
-					continue;
-				}
-
-				playing.subTargets[playing.targetIndex] = m;
-				target = m;
-			}
-
-
-			playing.rounds++;
-			if (playing.rounds < playing.maxRounds)
-			{
-
-				var font = SharedState.self.fontAsian;
-				var newMonster = new Monster(TileID.RandomMonsterID(), target.text.ToString(), font);
-				newMonster.pos = Xt.Vector2.Random();
-				newMonster.target = m.target;
-				newMonster.card = m.card;
-				newMonster.audioFilename = target.audioFilename;
-				newMonster.OnMonsterKill += OnMonsterKill;
-				newMonster.Flee(1);
-
-				playing.subTargets.Clear();
-				playing.subTargets.Add(newMonster);
-				monsterGroup.Add(newMonster);
-
-				continue;
-			}
-
-			playing.targetIndex++;
-
-			if (playing.targetIndex >= playing.subTargets.Count())
-			{
-
-				Console.WriteLine("next hunt");
-				NextHuntState();
-			}
-		}
-	}
-
-	public void NextHuntState()
-	{
-		playing.targetIndex = 0;
-
-		foreach (var m in playing.subTargets)
-		{
-			monsterGroup.Remove(m);
-			playing.target.pos = m.pos;
-		}
-
-		playing.subTargets.Clear();
-		playing.maxRounds = 2;
-		playing.rounds = 1;
-
-		var current = playing.state;
-		var target = playing.target;
-		if (current == HuntState.Init)
-		{
-			playing.subTargets.Add(target);
-
-			if (target.text.Length <= 1)
-			{
-				playing.maxRounds += 2;
-			}
-			if (!target.card.HasExample())
-			{
-				playing.maxRounds += 2;
-			}
-
-			playing.state = HuntState.Vocab;
-		}
-		else if (current == HuntState.Vocab)
-		{
-			TransitionVocab(target);
-		}
-		else if (current == HuntState.VocabParts)
-		{
-			TransitionVocabParts(target);
-		}
-		else if (current == HuntState.Example)
-		{
-			TransitionExample(target);
-		}
-		else if (current == HuntState.ExampleParts)
-		{
-			TransitionExampleParts(target);
-		}
-		else
-		{
-			Console.WriteLine("huh: {0}", playing.state);
-			ClearLevel();
-		}
-
-		monsterGroup.AddAll(playing.subTargets);
-
-	}
-
-	private void TransitionVocab(Monster target)
-	{
-
-		if (target.text.Length <= 1)
-		{
-			TransitionVocabParts(target);
-		}
-		else
-		{
-			playing.subTargets.AddRange(SplitMonsterBy(target, "VocabKanji"));
-			playing.state = HuntState.VocabParts;
-		}
-	}
-	private void TransitionVocabParts(Monster target)
-	{
-		if (target?.card?.HasExample() ?? false)
-		{
-			Console.WriteLine("to example {0}", target.card.GetField("SentKanji"));
-			playing.subTargets.Add(CreateExampleMonster(target));
-			playing.state = HuntState.Example;
-		}
-		else
-		{
-			ClearLevel();
-		}
-	}
-	private void TransitionExample(Monster target)
-	{
-		Console.WriteLine("to example parts");
-		playing.subTargets.AddRange(SplitMonsterBy(target, "SentKanji"));
-		playing.state = HuntState.ExampleParts;
-	}
-	private void TransitionExampleParts(Monster target)
-	{
-		ClearLevel();
-	}
-
-
-	public void ClearLevel()
-	{
-
-		playing.state = HuntState.Clear;
-		gameState = State.Clear;
-	}
-
-	public void UpdatePlaying()
-	{
-		player.Update();
-
-		if (Gamepad.IsPressed(GamepadButton.RightShoulder) || Mouse.IsPressed(MouseButton.LeftButton))
-		{
-			player.DoAction1();
-		}
-		else if (Gamepad.IsPressed(GamepadButton.A) || Keyboard.IsPressed(KeyConstant.Space))
-		{
-			player.DoAction2();
-		}
-
-		var targetMonster = playing.targetIndex >= 0 && playing.targetIndex < playing.subTargets.Count()
-				? playing.subTargets[playing.targetIndex] : null;
-
-		var sword = player.sword;
-		foreach (var m in monsterGroup.GetMonstersAt(sword.GetEndPos()))
-		{
-			var hit = sword.HasHit(m);
-			if (hit && sword.enabled && m.IsAlive())
-			{
-				var isTarget = m.text == targetMonster?.text;
-				var damage = !isTarget ? 0 : Random.Shared.Next(60, 100);
-				if (isTarget)
-				{
-
-					Console.WriteLine("damage: {0}", damage);
-				}
-				m.Hit(sword.pos, damage);
-
-				var filename = m.audioFilename;
-				AnkiAudioPlayer.Play(filename);
-			}
-		}
-		foreach (var m in monsterGroup.GetMonstersAt(player.pos))
-		{
-			if (player.entity.CollidesWith(m.entity) && m.CanDamage())
-			{
-				player.Hit();
-			}
-		}
-
-		if (player.health <= 0)
-		{
-			gameover.opacity = 0;
-			gameState = State.Gameover;
-			Console.WriteLine("gameover");
-		}
-
-		UpdateTargets();
-	}
-
-	public void Update()
-	{
-		elapsed += Love.Timer.GetDelta();
-
-		cam.Update();
-		cam.CenterAt(player.pos);
-
-		monsterGroup.Update();
-
-		if (gameState == State.Playing)
-		{
-			UpdatePlaying();
-		}
-		else if (gameState == State.Gameover)
-		{
-			UpdateGameover();
-		}
-		else if (gameState == State.Clear)
-		{
-			UpdateClear();
-		}
-		else if (gameState == State.Initializing)
-		{
-			gameState = State.Playing;
-		}
-
-		if (killedMonsters.Count() > 0)
-		{
-			killedMonsters.Clear();
-		}
-	}
-
-	public void Unload()
-	{
-		monsterGroup.Dispose();
-	}
-
-}
-*/
-
-/*
-Looking at this closer, it's clear that
-it won't be able to handle more complex cases,
-if the example is any indication.
-For one, the event doesn't support arguments.
-Two, it doesn't support combining wait events.
-Basically, what I want is something like async Task.
-Wait a minute, why shouldn't I just use Task then!?
-Initially, I was thinking it might have too
-much overhead and hence too slow for games,
-but does it even matter for simple games like this.
-There's no way I'm forking the Coroutine library
-just to make it cover more complex cases.
-
-I found another library, AwaitableCoroutine, 
-it seems to cover more complex usage.
-
-
-Event KeyEvent = new Event();
-Event MonsterHit = new Event();
-
-public async void StartGame()
-{
-
-}
-
-class TextComponent : Component
-{
-	string text;
-	public void Update(Entity entity)
-	{
-
-	}
-
-	public void Draw(Entity entity)
-	{
-
-	}
-}
-
-
-Entity windowEntity;
-
-
-*/
-
 
 
 
@@ -4838,3 +4032,637 @@ public class TextProgress
 
 }
 
+
+public partial class TextEntity
+{
+
+    public RectangleF rect = new RectangleF();
+    Vector2 _pos;
+    PosAlign _align;
+    float _scale = 1;
+    public Vector2 pos
+    {
+        get { return _pos; }
+        set
+        {
+            _pos = value;
+            rect.Location = _pos;
+        }
+    }
+    public PosAlign align
+    {
+        get { return _align; }
+        set { _align = value; UpdateRect(); }
+    }
+
+    public float scale
+    {
+        get { return _scale; }
+        set { _scale = value; UpdateRect(); }
+    }
+
+    public string text;
+    public Font font;
+
+    ColoredString[] coloredText;
+    Color color = Color.White;
+    float textWidth;
+    float textHeight;
+    public int margin = 20;
+
+    public Color bgColor = new Color(20, 20, 20, 200);
+    public Color borderColor = Color.Gray;
+
+    string[] lines;
+    int maxWidth;
+
+    public bool typewriting = false;
+
+    public bool autoScale = true;
+
+    public AlignMode textAlign = AlignMode.Left;
+    public bool fillMaxWidth = false;
+
+    // TODO: setting the lineHeight other than 1
+    // seems to be broken. Not sure if this is a bug.
+    public TextEntity(string text, Font font, int maxWidth = -1)
+    {
+        this.maxWidth = maxWidth;
+        this.font = font;
+        //font = Graphics.NewFont(fontSize);
+        //text = font.GetWrap()
+
+        UpdateText(text);
+        UpdateRect();
+        SetText(text, Color.White);
+    }
+
+    public void UpdateText(string text)
+    {
+        if (autoScale)
+        {
+            var n = 4.0f;
+            if (text.Length > n)
+            {
+                scale = MathF.Max(1 - (text.Length - n) / 40, 0.46f);
+            }
+        }
+        this.text = text;
+
+        lines = new string[0];
+        if (maxWidth > 0)
+        {
+            var t = font.GetWrap(text, maxWidth / scale);
+            textWidth = (float)t.Item1;
+            lines = t.Item2;
+        }
+        else
+        {
+            lines = text.Split('\n').ToArray();
+            foreach (var line in lines)
+            {
+                textWidth = Math.Max(textWidth, font.GetWidth(line));
+            }
+        }
+        float numLines = lines.Length;
+        float fontHeight = font.GetHeight();
+        textHeight = numLines * (fontHeight * font.GetLineHeight());
+
+        text = string.Join('\n', lines);
+
+    }
+
+    public void UpdateRect()
+    {
+        var p = pos;
+        var w = fillMaxWidth ? maxWidth : textWidth;
+
+        rect.Width = (w + margin) * scale;
+        rect.Height = (textHeight + margin) * scale;
+
+        p.X -= rect.Width / 2;
+        p.Y -= rect.Height / 2;
+
+        if ((align & PosAlign.StartX) != 0)
+        {
+            p.X += rect.Width / 2;
+        }
+        else if ((align & PosAlign.EndX) != 0)
+        {
+            p.X -= rect.Width / 2;
+        }
+
+        if ((align & PosAlign.StartY) != 0)
+        {
+            p.Y += rect.Height / 2;
+        }
+        else if ((align & PosAlign.EndY) != 0)
+        {
+            p.Y -= rect.Height / 2;
+        }
+
+        pos = p;
+        rect.Location = p;
+    }
+
+    public void SetColor(Color color, int startIndex = 0, int? endIndexOpt = null)
+    {
+        int endIndex = endIndexOpt.GetValueOrDefault(text.Length - 1);
+        for (var i = startIndex; i <= Math.Min(endIndex, text.Length - 1); i++)
+        {
+            var c = coloredText[i];
+            coloredText[i] = new ColoredString(c.text, color);
+        }
+    }
+
+    public void SetText(string text, Color? colorOpt = null)
+    {
+        var color = colorOpt.GetValueOrDefault(Color.White);
+
+        coloredText = new ColoredString[text.Length];
+        foreach (var (ch, i) in text.WithIndex())
+        {
+            coloredText[i] = new(ch.ToString(), color);
+        }
+        UpdateText(text);
+        UpdateRect();
+    }
+
+
+
+    public async Coroutine TypeWrite(CoroutineControl ctrl, Color tempColor, int speed = 5)
+    {
+        if (typewriting)
+        {
+            return;
+        }
+        typewriting = true;
+        using var _ = Defer.Run(() => typewriting = false);
+
+        int i;
+        for (i = 0; i < coloredText.Length; i++)
+        {
+            coloredText[i] = new(coloredText[i].text, Color.Transparent);
+        }
+        for (i = 1; i < coloredText.Length; i++)
+        {
+            if (i >= coloredText.Length)
+            {
+                break;
+            }
+            coloredText[i - 1] = new(coloredText[i - 1].text, Color.White);
+            coloredText[i - 0] = new(coloredText[i - 0].text, tempColor);
+            await ctrl.DelayCount(speed);
+        }
+        if (i > 0 && i <= coloredText.Length)
+        {
+            coloredText[i - 1] = new(coloredText[i - 1].text, Color.White);
+        }
+    }
+
+    public void Update()
+    {
+
+    }
+
+    public void Draw()
+    {
+        Graphics.SetColor(bgColor);
+        Graphics.Rectangle(DrawMode.Fill, rect.X, rect.Y, rect.Width, rect.Height);
+        Graphics.SetColor(borderColor);
+        Graphics.Rectangle(DrawMode.Line, rect.X, rect.Y, rect.Width, rect.Height);
+
+        Graphics.Push();
+        Graphics.Translate(pos.X, pos.Y);
+        Graphics.Scale(scale);
+
+
+
+        Graphics.SetFont(font);
+        Graphics.SetColor(Color.White);
+        Graphics.Printf(new ColoredStringArray(coloredText), margin / 2, margin / 2, fillMaxWidth ? maxWidth : textWidth, textAlign);
+        Graphics.Pop();
+    }
+
+    public float GetWidth()
+    {
+        return rect.Width;
+    }
+
+    public float GetHeight()
+    {
+        return rect.Height;
+    }
+}
+
+/*
+public class ColoredStringBuilder
+{
+    List<Color> colors;
+    List<string> texts;
+
+    public void SetColor(Color color)
+    {
+
+    }
+
+    // builder.SetColor(red)
+    //        .AddText(s1).
+    //        .SetColor(blue)
+    //        .NewText(s2)
+}
+*/
+
+
+public class SimpleMenu : View, IDisposable
+{
+    Font font;
+    public float Width;
+    public float Height;
+    Vector2 pos;
+    public PosAlign align = PosAlign.EndX | PosAlign.EndY;
+    string[] choices;
+    List<TextEntity> items = new();
+    int index = -1;
+
+    int _margin;
+    Color _borderColor;
+    Color _bgColor;
+    public Color borderColor
+    {
+        get { return _borderColor; }
+        set
+        {
+            _borderColor = value;
+            foreach (var item in items) item.borderColor = value;
+        }
+    }
+    public Color bgColor
+    {
+        get { return _bgColor; }
+        set
+        {
+            _bgColor = value;
+            foreach (var item in items) item.bgColor = value;
+        }
+    }
+    public int margin
+    {
+        get { return _margin; }
+        set
+        {
+            _margin = value;
+            foreach (var item in items) item.margin = value;
+            UpdateSize();
+        }
+    }
+
+    public SimpleMenu(string[] choices, int fontSize = 24, int maxWidth = -1)
+    {
+        this.choices = choices;
+        font = Graphics.NewFont(fontSize);
+        if (maxWidth < 0)
+        {
+            maxWidth = choices.Max(a => font.GetWidth(a));
+        }
+
+        foreach (var s in choices)
+        {
+            var c = new TextEntity(s, font, maxWidth);
+            c.autoScale = false;
+            c.scale = 1.2f;
+            c.align = PosAlign.StartX | PosAlign.StartY;
+            c.bgColor = Color.Transparent;
+            c.borderColor = Color.Transparent;
+            c.textAlign = AlignMode.Center;
+            c.fillMaxWidth = true;
+            c.margin = 10;
+            items.Add(c);
+        }
+
+        UpdateSize();
+        SetPosition(Vector2.Zero);
+        SelectItem(0);
+    }
+
+    public void UpdateSize()
+    {
+
+        float y = pos.Y;
+        this.Height = 0;
+        this.Width = 0;
+        foreach (var item in items)
+        {
+            item.UpdateRect();
+            this.Height += item.rect.Height;
+            this.Width = MathF.Max(this.Width, item.rect.Width);
+            item.pos = new Vector2(pos.X, y);
+            y += item.rect.Height;
+        }
+    }
+
+
+    public void SelectItem(int newIndex)
+    {
+        if (index >= 0 && index < items.Count())
+        {
+            items[index].SetColor(Color.White);
+        }
+        if (newIndex >= 0 && newIndex < items.Count())
+        {
+            items[newIndex].SetColor(Color.Red);
+        }
+        index = newIndex;
+    }
+
+    public string GetChoice()
+    {
+        return items[index].text;
+    }
+
+    public void PrevItem()
+    {
+        if (index > 0)
+        {
+            SelectItem(index - 1);
+        }
+    }
+
+    public void NextItem()
+    {
+        if (index < items.Count() - 1)
+        {
+            SelectItem(index + 1);
+        }
+    }
+
+    public void SetPosition(Vector2 p)
+    {
+
+        p.X -= Width / 2;
+        p.Y -= Height / 2;
+
+        if ((align & PosAlign.StartX) != 0)
+        {
+            p.X += Width / 2;
+        }
+        else if ((align & PosAlign.EndX) != 0)
+        {
+            p.X -= Width / 2;
+        }
+
+        if ((align & PosAlign.StartY) != 0)
+        {
+            p.Y += Height / 2;
+        }
+        else if ((align & PosAlign.EndY) != 0)
+        {
+            p.Y -= Height / 2;
+        }
+
+        pos = p;
+
+        float y = p.Y;
+        foreach (var c in items)
+        {
+            c.pos = new Vector2(p.X, y);
+            c.UpdateRect();
+            y += c.rect.Height;
+        }
+    }
+
+
+    public void Show(CoroutineControl ctrl)
+    {
+        Callbacks.AddDraw(Draw);
+        Callbacks.AddUpdate(Update);
+    }
+
+    public void Hide(CoroutineControl ctrl)
+    {
+
+        Callbacks.RemoveDraw(Draw);
+        Callbacks.RemoveUpdate(Update);
+    }
+
+    // TODO:
+    // Align { left, right, center}
+    // PrintCenter(rect, str)
+    // PrintLeft(rect, str)
+    // PrintRight(rect, str)
+    // Print(align, rect, str)
+    // Draw(align, rect, textObj)
+    // or use a RectangleExtension
+
+    public void Draw()
+    {
+        foreach (var item in items)
+        {
+            item.Draw();
+        }
+    }
+
+    public void Update()
+    {
+    }
+
+    public void Dispose()
+    {
+        Callbacks.RemoveDraw(Draw);
+        Callbacks.RemoveUpdate(Update);
+    }
+
+    public record Choice(int index, string text) { }
+}
+
+public class LoadView : View
+{
+    string DeckName { get; set; } = "";
+    public DeckNames DeckNames { get; set; } = new();
+
+    public List<CardInfo> NewCards { get; set; } = new();
+    public List<CardInfo> DueCards { get; set; } = new();
+
+
+    public void Draw()
+    {
+    }
+
+    public void Update()
+    {
+    }
+
+    public async Task<DeckNames> LoadDecks(string deckName)
+    {
+        var resp = (await AnkiConnect.FetchDecks()).Unwrap();
+        DeckNames = resp;
+        return resp ?? new DeckNames();
+    }
+
+    public async Task<IEnumerable<CardInfo>> LoadCards(string deckName)
+    {
+
+        var resp = await Task.WhenAll(
+            AnkiConnect.FetchNewCards(deckName),
+            AnkiConnect.FetchAvailableCards(deckName)
+        );
+        var newCards = resp[0].Unwrap();
+        var dueCards = resp[1].Unwrap();
+
+        foreach (var card in newCards)
+        {
+            card.IsNew = true;
+        }
+
+        NewCards = newCards.ToList();
+        DueCards = dueCards.ToList();
+
+        return dueCards.Union(newCards);
+    }
+}
+
+public class StartScreen : View
+{
+    SharedState state;
+    public SimpleMenu gameMenu = new SimpleMenu(new[] { "start", "select deck", "options", "exit" });
+    public GameInput input = new();
+    string selectedDeck = "test deck";
+
+    CoroutineControl ctrl;
+    Corunner runner;
+
+    CardPreview testPreview = new CardPreview("北海道", new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2));
+
+    public StartScreen(SharedState state)
+    {
+        this.state = state;
+        ctrl = new();
+        runner = new();
+    }
+
+    public void Load()
+    {
+        gameMenu.align = PosAlign.StartX;
+        gameMenu.SetPosition(new Vector2(gameMenu.Width / 2, Graphics.GetHeight() / 2));
+        gameMenu.margin = 5;
+
+        testPreview.runner = runner;
+        testPreview.ctrl = ctrl;
+        testPreview.Start();
+        // TODO: load cards from deck
+    }
+    public void Unload()
+    {
+        input.Dispose();
+    }
+
+    public void Draw()
+    {
+        var leftBarWidth = gameMenu.Width * 2;
+        Graphics.SetColor(new Color(20, 20, 20, 128));
+        Graphics.Rectangle(DrawMode.Fill, 0, 0, Graphics.GetWidth(), Graphics.GetHeight());
+        Graphics.SetColor(new Color(20, 20, 20, 220));
+        Graphics.Rectangle(DrawMode.Fill, 0, 0, leftBarWidth, Graphics.GetHeight());
+        gameMenu.Draw();
+
+        var margin = 20;
+        var deckInfoPos = new Vector2(leftBarWidth + margin, margin);
+        Graphics.Print(selectedDeck, deckInfoPos.X, deckInfoPos.Y);
+        Xt.Graphics.PrintVertical("testing", deckInfoPos + Vector2.UnitY * 100);
+
+        testPreview.Draw();
+    }
+
+    public void Update()
+    {
+        if (input.IsPressed(ActionType.Up))
+        {
+            gameMenu.PrevItem();
+        }
+        else if (input.IsPressed(ActionType.Down))
+        {
+            gameMenu.NextItem();
+        }
+        else if (input.IsPressed(ActionType.ButtonA))
+        {
+            PerformAction();
+        }
+        runner.Update();
+    }
+
+    void PerformAction()
+    {
+        var choice = gameMenu.GetChoice();
+        if (choice == "start")
+        {
+            Console.WriteLine("TODO");
+        }
+        else
+        {
+            Console.WriteLine($"not yet implemented: {choice}");
+        }
+    }
+
+    public class CardPreview
+    {
+        public Corunner? runner;
+        public CoroutineControl? ctrl;
+        TextEntity textObj;
+        Vector2 dir = Xt.Vector2.RandomDir();
+
+        public CardPreview(string str, Vector2 pos)
+        {
+            var sb = new StringBuilder();
+            foreach (var ch in str)
+            {
+                sb.Append(ch);
+                sb.AppendLine();
+            }
+            textObj = new(sb.ToString(), SharedState.self.fontAsian);
+            textObj.borderColor = Color.Transparent;
+            textObj.bgColor = Color.Transparent;
+            textObj.pos = pos;
+            textObj.SetColor(Color.Transparent);
+        }
+
+        public void Start()
+        {
+            runner?.Create(StartScript);
+        }
+        public async Coroutine StartScript()
+        {
+            if (ctrl == null)
+            {
+                ctrl = new CoroutineControl();
+            }
+
+            var tempColor = Color.Gray;
+            int i;
+            for (i = 1; i < textObj.text.Length; i++)
+            {
+                textObj.SetColor(Color.White, i - 1, i - 1);
+                textObj.SetColor(tempColor, i, i);
+                await ctrl.DelayCount(5);
+            }
+            await ctrl.DelayCount(150);
+            for (i = 1; i < textObj.text.Length; i++)
+            {
+                textObj.SetColor(Color.Transparent, i - 1, i - 1);
+                textObj.SetColor(tempColor, i, i);
+                await ctrl.DelayCount(5);
+            }
+        }
+
+        public void Draw()
+        {
+            textObj.Draw();
+            textObj.pos += dir;
+            dir *= 0.98f;
+        }
+
+        public void Update()
+        {
+
+        }
+    }
+}
