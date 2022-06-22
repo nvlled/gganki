@@ -12,6 +12,7 @@ using Love.Misc;
 using static gganki_love.RandomContainer;
 using System.Threading.Tasks;
 using System.Text;
+using System.Text.Json;
 
 public class Script : View
 {
@@ -35,7 +36,7 @@ public class Script : View
         game = new HuntingGame(state);
         startScreen = new StartScreen(state);
 
-        currentView = game;
+        currentView = startScreen;
     }
 
 
@@ -2728,7 +2729,6 @@ public class HuntingGame : View
                 await GameoverScript(ctrl);
                 tryAgain = true;
             }
-
         }
     }
 
@@ -4072,6 +4072,7 @@ public partial class TextEntity
 
     public Color bgColor = new Color(20, 20, 20, 200);
     public Color borderColor = Color.Gray;
+    public Color textColor = Color.White;
 
     string[] lines;
     int maxWidth;
@@ -4177,7 +4178,7 @@ public partial class TextEntity
 
     public void SetText(string text, Color? colorOpt = null)
     {
-        var color = colorOpt.GetValueOrDefault(Color.White);
+        var color = colorOpt.GetValueOrDefault(textColor);
 
         coloredText = new ColoredString[text.Length];
         foreach (var (ch, i) in text.WithIndex())
@@ -4210,13 +4211,13 @@ public partial class TextEntity
             {
                 break;
             }
-            coloredText[i - 1] = new(coloredText[i - 1].text, Color.White);
+            coloredText[i - 1] = new(coloredText[i - 1].text, textColor);
             coloredText[i - 0] = new(coloredText[i - 0].text, tempColor);
             await ctrl.DelayCount(speed);
         }
         if (i > 0 && i <= coloredText.Length)
         {
-            coloredText[i - 1] = new(coloredText[i - 1].text, Color.White);
+            coloredText[i - 1] = new(coloredText[i - 1].text, textColor);
         }
     }
 
@@ -4235,8 +4236,6 @@ public partial class TextEntity
         Graphics.Push();
         Graphics.Translate(pos.X, pos.Y);
         Graphics.Scale(scale);
-
-
 
         Graphics.SetFont(font);
         Graphics.SetColor(Color.White);
@@ -4283,29 +4282,35 @@ public class SimpleMenu : View, IDisposable
     public PosAlign align = PosAlign.EndX | PosAlign.EndY;
     string[] choices;
     List<TextEntity> items = new();
+    HashSet<int> disabledIndices = new();
     int index = -1;
 
     int _margin;
     Color _borderColor;
     Color _bgColor;
+    Color _normalColor = Color.White;
+    Color _selectedColor = Color.Red;
     public Color borderColor
     {
         get { return _borderColor; }
-        set
-        {
-            _borderColor = value;
-            foreach (var item in items) item.borderColor = value;
-        }
+        set { _borderColor = value; UpdateColors(); }
     }
     public Color bgColor
     {
         get { return _bgColor; }
-        set
-        {
-            _bgColor = value;
-            foreach (var item in items) item.bgColor = value;
-        }
+        set { _bgColor = value; UpdateColors(); }
     }
+    public Color normalColor
+    {
+        get { return _normalColor; }
+        set { _normalColor = value; UpdateColors(); }
+    }
+    public Color selectedColor
+    {
+        get { return _selectedColor; }
+        set { _selectedColor = value; UpdateColors(); }
+    }
+
     public int margin
     {
         get { return _margin; }
@@ -4345,6 +4350,23 @@ public class SimpleMenu : View, IDisposable
         SelectItem(0);
     }
 
+    public void EnableItem(int i) { disabledIndices.Remove(i); UpdateColors(); }
+    public void DisableItem(int i) { disabledIndices.Add(i); UpdateColors(); }
+
+    public void UpdateColors()
+    {
+        foreach (var (item, i) in items.WithIndex())
+        {
+            item.bgColor = _bgColor;
+            item.borderColor = _borderColor;
+            var color = disabledIndices.Contains(i) ? Color.Gray
+                           : i == index ? _selectedColor
+                           : _normalColor;
+            item.SetColor(color);
+        }
+    }
+
+
     public void UpdateSize()
     {
 
@@ -4366,11 +4388,14 @@ public class SimpleMenu : View, IDisposable
     {
         if (index >= 0 && index < items.Count())
         {
-            items[index].SetColor(Color.White);
+            items[index].SetColor(_normalColor);
         }
         if (newIndex >= 0 && newIndex < items.Count())
         {
-            items[newIndex].SetColor(Color.Red);
+            items[newIndex].SetColor(
+                disabledIndices.Contains(newIndex)
+                ? Color.Gray : _selectedColor
+            );
         }
         index = newIndex;
     }
@@ -4473,6 +4498,11 @@ public class SimpleMenu : View, IDisposable
     }
 
     public record Choice(int index, string text) { }
+
+    public void SetSelectedColor(Color red)
+    {
+        throw new NotImplementedException();
+    }
 }
 
 public class LoadView : View
@@ -4526,11 +4556,12 @@ public class StartScreen : View
     SharedState state;
     public SimpleMenu gameMenu = new SimpleMenu(new[] { "start", "select deck", "options", "exit" });
     public GameInput input = new();
-    string selectedDeck = "test deck";
+    string selectedDeck = "";
 
     CoroutineControl ctrl;
     Corunner runner;
 
+    Scripter scripter;
     CardPreview testPreview = new CardPreview("北海道", new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2));
 
     public StartScreen(SharedState state)
@@ -4538,6 +4569,56 @@ public class StartScreen : View
         this.state = state;
         ctrl = new();
         runner = new();
+
+        gameMenu.selectedColor = Color.Blue;
+        gameMenu.DisableItem(0);
+
+        scripter = new Scripter(Script);
+        scripter.Start();
+    }
+
+    public async Coroutine Script(CoroutineControl ctrl)
+    {
+        var n = 20;
+        var pos = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
+        var dir = Xt.Vector2.RandomDir() * Random.Shared.Next(1, 2);
+        scripter.components.AddUpdate(() =>
+        {
+            pos += dir * n / 10;
+        });
+        scripter.components.AddDraw(() =>
+        {
+            Graphics.SetColor(Color.Green);
+            Graphics.Circle(DrawMode.Fill, pos, 30);
+        });
+
+        var c1 = new CoroutineControl();
+        var c2 = new CoroutineControl();
+        var h = new Dictionary<object, int>();
+        h[c1.Cancel] = 1;
+        h[c2.Cancel] = 2;
+        h[c1.Cancel] = 3;
+        Console.WriteLine(h[c1.Cancel]);
+        Console.WriteLine(h[c2.Cancel]);
+
+        while (true)
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                await ctrl.DelayCount(1);
+            }
+            dir = Xt.Vector2.RandomDir() * Random.Shared.Next(1, 2);
+            n = Random.Shared.Next(30, 60);
+        }
+    }
+
+    public async Coroutine BgScript(CoroutineControl ctrl)
+    {
+        for (var i = 0; i < 10; i++)
+        {
+            Console.WriteLine($"bg {i}");
+            await ctrl.DelayCount(20);
+        }
     }
 
     public void Load()
@@ -4549,8 +4630,25 @@ public class StartScreen : View
         testPreview.runner = runner;
         testPreview.ctrl = ctrl;
         testPreview.Start();
-        // TODO: load cards from deck
+
+        // TODO:
+        /*
+        var deckName = loader.LoadLastDeck();
+        var decks = loader.LoadAvailableDecks();
+        if (deckName is null && decks.Length > 0)
+        {
+            deckName = decks[0];
+        }
+
+        var cards = loader.FetchDueCards(deckName);
+
+        */
+
+        /*
+        scripter.Run
+        */
     }
+
     public void Unload()
     {
         input.Dispose();
@@ -4571,12 +4669,14 @@ public class StartScreen : View
         Xt.Graphics.PrintVertical("testing", deckInfoPos + Vector2.UnitY * 100);
 
         testPreview.Draw();
+        scripter.Draw();
     }
 
     public void Update()
     {
         if (input.IsPressed(ActionType.Up))
         {
+            scripter.StartBackground(BgScript);
             gameMenu.PrevItem();
         }
         else if (input.IsPressed(ActionType.Down))
@@ -4587,7 +4687,9 @@ public class StartScreen : View
         {
             PerformAction();
         }
+
         runner.Update();
+        scripter.Update();
     }
 
     void PerformAction()
@@ -4664,5 +4766,98 @@ public class StartScreen : View
         {
 
         }
+    }
+}
+
+public class Scripter
+{
+    public CoroutineControl ctrl = new();
+    public CoroutineRunner runner = new CoroutineRunner();
+    public ComponentRegistry components = new ComponentRegistry();
+
+    Func<CoroutineControl, Coroutine> mainScript;
+    Coroutine? mainCoroutine;
+    Queue<(Func<CoroutineControl, Coroutine>, object)> bgScripts = new();
+    Dictionary<object, CoroutineControl> runningBgScripts = new();
+
+    public Scripter(Func<CoroutineControl, Coroutine> mainScript)
+    {
+        this.mainScript = mainScript;
+    }
+
+    public void Start()
+    {
+        mainCoroutine = runner.Create(() => mainScript(ctrl));
+        runner.Create(async () =>
+        {
+            while (true)
+            {
+                (Func<CoroutineControl, Coroutine>, object) pair;
+
+                while (bgScripts.TryDequeue(out pair))
+                {
+                    var ctrl = new CoroutineControl();
+                    var (fn, id) = pair;
+
+                    runningBgScripts[id] = ctrl;
+                    fn?.Invoke(ctrl);
+                }
+
+                await ctrl.DelayCount(1);
+            }
+        });
+    }
+
+    public void Update()
+    {
+        runner.Update();
+        components.Update();
+    }
+    public void Draw()
+    {
+        components.Draw();
+    }
+
+    public void StartBackground(Func<CoroutineControl, Coroutine> bgScript, object? id = null)
+    {
+        id ??= bgScript;
+        CoroutineControl c;
+        if (runningBgScripts.TryGetValue(id, out c))
+        {
+            c.Cancel();
+        }
+
+        bgScripts.Enqueue((bgScript, id));
+    }
+
+    public void StopBgScripts()
+    {
+        foreach (var ctrl in runningBgScripts.Values)
+        {
+            ctrl.Cancel();
+        }
+    }
+}
+
+public class CardLoader
+{
+    public void WriteSaveState(SavedState save)
+    {
+        var contents = JsonSerializer.Serialize(save);
+        System.IO.File.WriteAllText(Config.savedStateFilename, contents);
+    }
+
+    public SavedState RestoreSavedState()
+    {
+        try
+        {
+            var contents = System.IO.File.ReadAllText(Config.savedStateFilename);
+            var savedState = JsonSerializer.Deserialize<SavedState>(contents);
+            return savedState ?? new SavedState();
+        }
+        catch (JsonException) { }
+        catch (System.IO.FileNotFoundException) { }
+
+        return new SavedState();
     }
 }
