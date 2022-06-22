@@ -1115,7 +1115,6 @@ public class JP
 public class CoroutineControl
 {
     bool cancel = false;
-    static Action Nop = () => { };
 
     public void Cancel(Coroutine? co = null)
     {

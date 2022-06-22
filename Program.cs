@@ -138,8 +138,8 @@ public class Program : Scene
     {
 
         //Mouse.SetRelativeMode(true);
-        Mouse.SetGrabbed(true);
-        //Mouse.SetVisible(false);
+        //Mouse.SetGrabbed(true);
+        Mouse.SetVisible(false);
         //var filename = "78de88070e17b513462f962a8a481c6d.ogg";
         //var source = await AudioManager.LoadAudio(filename);
         //source.Play();
