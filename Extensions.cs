@@ -3,6 +3,41 @@ namespace gganki_love;
 
 using Love;
 using Co = AwaitableCoroutine.Coroutine;
+
+
+public static class RangeXt
+{
+    public static int[] ToArray(this Range range)
+    {
+        var size = range.End.Value - range.Start.Value + 1;
+        var result = new int[size];
+        for (var n = range.Start.Value; n <= range.End.Value; n++)
+        {
+            var i = n - range.Start.Value;
+            result[i] = n;
+        }
+        return result;
+    }
+
+    public static IEnumerable<int> Enumerate(this Range range)
+    {
+        for (var i = range.Start.Value; i <= range.End.Value; i++)
+        {
+            yield return i;
+        }
+    }
+}
+public static class RectangleFXt
+{
+
+    public static Love.Vector2 RandomPosition(this RectangleF rect)
+    {
+        return new Vector2(
+            rect.X + Random.Shared.NextSingle() * rect.Width,
+            rect.Y + Random.Shared.NextSingle() * rect.Height
+        );
+    }
+}
 public static class IEnumerableXt
 {
     public static IEnumerable<(T, int)> WithIndex<T>(this IEnumerable<T> items)
@@ -27,6 +62,30 @@ public static class CoroutineXt
 }
 public static class CollectionXt
 {
+    public static void Shuffle<T>(this IList<T> items)
+    {
+        int n = items.Count();
+        while (n > 1)
+        {
+            int k = Random.Shared.Next(n--);
+            T temp = items[n];
+            items[n] = items[k];
+            items[k] = temp;
+        }
+    }
+
+    public static IEnumerable<T> GetRandomItems<T>(this IList<T> list, int count)
+    {
+        for (var n = 0; n < count; n++)
+        {
+            var i = Random.Shared.Next(0, list.Count());
+            var item = list[i];
+            if (item != null)
+            {
+                yield return item;
+            }
+        }
+    }
     public static T? GetRandom<T>(this IList<T> list)
     {
         if (list.Count() == 0) return default(T);

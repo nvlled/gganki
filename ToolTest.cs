@@ -8,7 +8,7 @@ using System.Text.Json;
 
 public class ToolTest
 {
-    [Fact]
+    //[Fact]
     public async void TestFetchDecks()
     {
         var deckName = "AJT Kanji Transition TSC";

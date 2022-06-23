@@ -134,7 +134,7 @@ public class Test
         }
     }
 
-    [Fact]
+    //[Fact]
     public void TestAwaitable()
     {
         var runner = new CoroutineRunner();
@@ -191,6 +191,62 @@ public class Test
             Console.WriteLine("finally D");
         });
         await Coroutine.DelayCount(100);
+    }
+
+    //[Fact]
+    public void TestDate()
+    {
+        var seconds = 1655957743;
+        var t = DateTimeOffset.FromUnixTimeSeconds(seconds);
+        Console.WriteLine(DateTimeOffset.Now > t);
+        Console.WriteLine(DateTimeOffset.UtcNow > t);
+        Console.WriteLine(DateTimeOffset.Now > t.AddHours(10));
+    }
+
+    [Fact]
+    public void TestCardSkips()
+    {
+        SortedSet<CardInfo> skippedCards = new SortedSet<CardInfo>(Comparer<CardInfo>.Create((a, b) => (int)(a.due - b.due)));
+        var now = DateTimeOffset.UtcNow;
+        skippedCards.Add(new CardInfo { cardId = 1, due = (int)now.ToUnixTimeSeconds() });
+        skippedCards.Add(new CardInfo { cardId = 2, due = (int)now.ToUnixTimeSeconds() - 1000 });
+        skippedCards.Add(new CardInfo { cardId = 3, due = (int)now.ToUnixTimeSeconds() + 1000 });
+        skippedCards.Add(new CardInfo { cardId = 4, due = (int)now.ToUnixTimeSeconds() + 500 });
+        skippedCards.Add(new CardInfo { cardId = 5, due = (int)now.ToUnixTimeSeconds() - 200 });
+
+        //Console.WriteLine(new CardInfo { cardId = 3, due = (int)now.ToUnixTimeSeconds() + 1000 }.ToString());
+        Console.WriteLine("d  {0}", now);
+        foreach (var c in skippedCards)
+        {
+            var dueTime = DateTimeOffset.FromUnixTimeSeconds(c.due);
+            Console.WriteLine("{0}, {1} {2}", c.cardId, dueTime, now >= dueTime);
+        }
+        Console.WriteLine(GetSkippedDueCard(skippedCards)?.cardId);
+        Console.WriteLine(GetSkippedDueCard(skippedCards)?.cardId);
+        Console.WriteLine(GetSkippedDueCard(skippedCards)?.cardId);
+        Console.WriteLine(GetSkippedDueCard(skippedCards)?.cardId);
+    }
+    public CardInfo? GetSkippedDueCard(SortedSet<CardInfo> set)
+    {
+        CardInfo? selectedCard = null;
+        foreach (var card in set)
+        {
+            if (card == null)
+            {
+                return null;
+            }
+            if (card.IsDue())
+            {
+                selectedCard = card;
+                break;
+            }
+        }
+
+        if (selectedCard != null)
+        {
+            set.Remove(selectedCard);
+        }
+        return selectedCard;
     }
 
 }

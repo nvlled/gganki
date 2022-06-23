@@ -115,7 +115,7 @@ public record class CardInfo
     public ulong cardId { get; set; }
     public string? css { get; set; }
     public string? deckName { get; set; }
-    public int due { get; set; }
+    public long due { get; set; }
     public int factor { get; set; }
     public int fieldOrder { get; set; }
 
@@ -174,6 +174,12 @@ public record class CardInfo
         self.question = self.question?[0..25];
         self.css = self.css?[0..25];
         return DumpVar(self);
+    }
+
+    public bool IsDue()
+    {
+        var dueTime = DateTimeOffset.FromUnixTimeSeconds(due);
+        return DateTimeOffset.UtcNow >= dueTime;
     }
 }
 
@@ -370,23 +376,26 @@ public class AnkiConnect
 
         return WrapNullError(data);
     }
-    public static async Task<AnkiConnectResponse<CardInfo[]>> FetchAvailableCards(string deckName)
+    public static async Task<AnkiConnectResponse<CardInfo[]>> FetchAvailableCards(string deckName, int limit)
     {
-        return await FetchCards(deckName, "is:due");
+        return await FetchCards(deckName, "is:due", limit);
     }
-    public static async Task<AnkiConnectResponse<CardInfo[]>> FetchNewCards(string deckName)
+    public static async Task<AnkiConnectResponse<CardInfo[]>> FetchNewCards(string deckName, int limit)
     {
-        return await FetchCards(deckName, "is:new -is:learn");
+        return await FetchCards(deckName, "is:new -is:learn", limit);
     }
 
-    public static async Task<AnkiConnectResponse<CardInfo[]>> FetchCards(string deckName, string filter)
+    public static async Task<AnkiConnectResponse<CardInfo[]>> FetchCards(string deckName, string filter, int limit)
     {
         var idResp = await SearchCardIds(deckName, filter);
         if (idResp.error != null)
         {
             return AnkiConnectResponse<CardInfo[]>.Error(idResp.error);
         }
-        var cardResp = await AnkiConnect.FetchCardInfo(idResp.value ?? new ulong[0]);
+        var ids = idResp.value ?? new ulong[0];
+        ids = ids[0..limit];
+
+        var cardResp = await AnkiConnect.FetchCardInfo(ids);
         return cardResp;
     }
 
