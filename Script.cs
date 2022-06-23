@@ -1,3 +1,4 @@
+global using static gganki_love.DebugUtils;
 
 using Love;
 using System;
@@ -14,6 +15,7 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
 
+
 public class Script : View
 {
     List<View> subScripts = new List<View> { };
@@ -22,6 +24,7 @@ public class Script : View
 
     MonsterGroup monsters;
 
+    CardLoader cardLoader = new();
     StartScreen startScreen;
     HuntingGame game;
 
@@ -33,18 +36,42 @@ public class Script : View
         this.state = state;
         subScripts = new List<View> { };
 
-        game = new HuntingGame(state);
-        startScreen = new StartScreen(state);
+        game = new HuntingGame(state, cardLoader);
+        startScreen = new StartScreen(state, cardLoader);
+        startScreen.OnStart += async () =>
+        {
+            game.Load();
+            await LoadCards();
+            currentView = game;
+        };
 
         currentView = startScreen;
     }
 
+    public async Task LoadCards()
+    {
+        var selectedDeck = (await cardLoader.RestoreSavedState()).lastDeckName;
+        state.lastDeckName = selectedDeck;
+
+        var deckTask = cardLoader.LoadDecks();
+        Task<IEnumerable<CardInfo>>? cardTask = null;
+        if (selectedDeck != null)
+        {
+            cardTask = cardLoader.LoadCards(selectedDeck);
+        }
+
+        await (cardTask == null ? deckTask : Task.WhenAll(deckTask, cardTask));
+        state.deckNames = deckTask.Result;
+        if (selectedDeck != null && cardTask != null)
+        {
+            state.deckCards[selectedDeck] = cardTask.Result.ToArray();
+        }
+    }
 
     public void Load()
     {
-
+        _ = LoadCards();
         currentView.Load();
-
 
         GamepadHandler.OnAxis += OnGamepadAxis;
         GamepadHandler.OnPress += OnGamepadPress;
@@ -60,7 +87,8 @@ public class Script : View
 
     public void Unload()
     {
-        currentView.Unload();
+        game.Unload();
+        startScreen.Unload();
         GamepadHandler.OnAxis -= OnGamepadAxis;
         GamepadHandler.OnPress -= OnGamepadPress;
 
@@ -1930,8 +1958,7 @@ public class Player
     public void UpdateWeapon()
     {
         sword.Update();
-        sword.PointAt(GAxis.right.movingDir);
-        GAxis.right.buildMomentum = Gamepad.IsDown(GamepadButton.LeftShoulder);
+        sword.PointAt(Vector2.Normalize(game.input.GetMotion2()));
     }
     public void PerformMeleeAttack()
     {
@@ -2393,7 +2420,7 @@ public class HuntingGame : View
     public ItemGroup itemGroup;
 
     ComponentRegistry components = new ComponentRegistry();
-    Corunner runner = new Corunner();
+    Scripter scripter;
 
     List<CardInfo> cards = new List<CardInfo>();
 
@@ -2405,37 +2432,36 @@ public class HuntingGame : View
     public List<CardInfo> allCards = new List<CardInfo>();
     public int cardIndex = 0;
 
-    public SimpleMenu gameMenu = new SimpleMenu(new[] { "new game", "options", "exit" });
 
     public GameInput input = new();
 
+    CardLoader cardLoader;
 
-    CoroutineControl ctrl;
-
-    //public List<Monster> killedMonsters = new List<Monster>();
-
-    public HuntingGame(SharedState state)
+    public HuntingGame(SharedState state, CardLoader cardLoader)
     {
         this.state = state;
+        this.cardLoader = cardLoader;
 
         cam = new Camera(this);
         player = new Player(this);
         world = new World(this);
         monsterGroup = new MonsterGroup(this);
         itemGroup = new ItemGroup(this);
+        scripter = new Scripter(StartGameScript);
 
-
-        var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
-        allCards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
-
-        gameMenu.align = PosAlign.StartX;
-        //gameMenu.SetPosition(new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2));
-        gameMenu.SetPosition(new Vector2(50, Graphics.GetHeight() / 2));
 
     }
 
     public void Load()
     {
+        var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
+        allCards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
+
+        foreach (var card in allCards)
+        {
+            RemoveUnwantedText(card);
+        }
+
         StartGame();
     }
 
@@ -2527,7 +2553,6 @@ public class HuntingGame : View
         monsterGroup.RegisterOnKill(onKill);
         using var _ = Defer.Run(() =>
         {
-            Console.WriteLine("*** remove on kill");
             monsterGroup.OnKill -= onKill;
         });
         while (monster == null)
@@ -2571,24 +2596,83 @@ public class HuntingGame : View
         {
             cards.Add(card);
         }
-        RemoveUnwantedText(card, "VocabKanji");
         playing.card = card;
+    }
+
+    SortedSet<CardInfo> skippedCards = new SortedSet<CardInfo>(Comparer<CardInfo>.Create((a, b) => (int)(a.due - b.due)));
+    public CardInfo? GetSkippedDueCard(SortedSet<CardInfo> set)
+    {
+        CardInfo? selectedCard = null;
+        foreach (var card in set)
+        {
+            if (card == null)
+            {
+                return null;
+            }
+            if (card.IsDue())
+            {
+                selectedCard = card;
+                break;
+            }
+        }
+
+        if (selectedCard != null)
+        {
+            set.Remove(selectedCard);
+        }
+        return selectedCard;
+    }
+
+    public CardInfo? GetNextCard()
+    {
+        CardInfo? card = GetSkippedDueCard(skippedCards);
+
+        if (card != null)
+        {
+            return card;
+        }
+
+
+        while (cardIndex < allCards.Count())
+        {
+            card = allCards[cardIndex++];
+            if (card.IsDue())
+            {
+                return card;
+            }
+            skippedCards.Add(card);
+            Console.WriteLine("skipped card: {0}, {1}", card.cardId, card.GetVocab());
+        }
+
+        return null;
     }
 
     public void InitGame(bool tryAgain = false)
     {
+        if (cardIndex >= allCards.Count() - 1)
+        {
+            return;
+        }
+
         playing.subIndex = 0;
 
         gameState = State.Playing;
+        // TODO: player.reset()
         player.entity.pos = world.Center;
         player.health = 100;
         cam.CenterAt(player.pos);
 
+
         if (!tryAgain)
         {
+            var card = GetNextCard();
+            if (card == null)
+            {
+                Console.WriteLine("no cards available");
+                return;
+            }
+            playing.card = card;
 
-            playing.card = allCards[cardIndex++];
-            RemoveUnwantedText(playing.card);
             if (!cards.Contains(playing.card))
             {
                 cards.Add(playing.card);
@@ -2629,8 +2713,7 @@ public class HuntingGame : View
 
     public void StartGame()
     {
-        runner.Cancel();
-        runner.Create(StartGameScript);
+        scripter.Start();
     }
 
 
@@ -2647,7 +2730,7 @@ public class HuntingGame : View
         //await ctrl.AwaitAnyKey();
     }
 
-    public async Coroutine StartGameScript()
+    public async Coroutine StartGameScript(CoroutineControl ctrl)
     {
         cam = new Camera(this);
         player = new Player(this);
@@ -2657,7 +2740,6 @@ public class HuntingGame : View
         monsterGroup.Dispose();
         monsterGroup = new MonsterGroup(this, player.entity);
 
-        ctrl = new CoroutineControl();
         var tryAgain = false;
         var skipChooseAnswer = false;
         while (true)
@@ -2689,24 +2771,24 @@ public class HuntingGame : View
                 }
             }
 
+            using var _5 = Defer.Run(() =>
+            {
+                PrintVar("main script ended");
+            });
+
             if (startHunt)
             {
-                var gameScript = StartHuntScript(ctrl);
-                await ctrl.While(() => gameState == State.Playing);
+                var subCtrl = new CoroutineControl();
+                var gameScript = StartHuntScript(subCtrl);
+                await subCtrl.While(() => gameState == State.Playing);
                 try
                 {
                     Console.WriteLine("cancelling");
-                    ctrl.Cancel(gameScript);
+                    subCtrl.Cancel();
                 }
                 catch (Exception e)
                 {
                     // ignore
-                    Console.WriteLine($"huh: ${e.Message}");
-                }
-
-                if (!gameScript.IsCompleted)
-                {
-                    await gameScript;
                 }
 
                 if (gameState == State.Clear)
@@ -2714,8 +2796,6 @@ public class HuntingGame : View
                     _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Good);
                 }
             }
-
-            ctrl = new CoroutineControl();
 
             if (gameState == State.Clear)
             {
@@ -2751,38 +2831,23 @@ public class HuntingGame : View
         string message = "";
         Monster? killed = null;
         HashSet<Monster> questionMonsters = new HashSet<Monster>();
-        HashSet<Monster> highligtedMonsters = new HashSet<Monster>();
 
         var onHit = (Monster m) =>
         {
             var damage = Random.Shared.Next(40, 60);
-            if (highligtedMonsters.Contains(m))
-            {
+            m.Attack(Vector2.Zero, damage);
 
+            if (m.IsAlive() && questionMonsters.Contains(m))
+            {
                 AnkiAudioPlayer.Play(m.audioFilename);
-                m.Attack(Vector2.Zero, damage);
-            }
-            else if (questionMonsters.Contains(m))
-            {
-                if (questionMonsters.Contains(m))
-                {
-                    AnkiAudioPlayer.Play(m.audioFilename);
-                    foreach (var m2 in questionMonsters)
-                    {
-                        m2.Attack(Vector2.Zero, damage);
-                    }
-                }
-            }
-            else
-            {
-                m.Attack(Vector2.Zero, damage);
             }
         };
+
         var onKill = (Monster m) =>
         {
             killed = m;
-            AnkiAudioPlayer.Play(m.audioFilename);
         };
+
         var draw = () =>
         {
             if (message != "")
@@ -2814,12 +2879,13 @@ public class HuntingGame : View
         var choices = CreateChoices(card, 7);
         var (vocab, example) = CreateQuestion(card);
 
+        player.pos = vocab.pos - Vector2.UnitX * player.rect.Width * 2;
+
         questionMonsters.Add(vocab);
-        highligtedMonsters.Add(vocab);
         vocab.defense = 2;
         if (example != null)
         {
-            highligtedMonsters.Add(example);
+            questionMonsters.Add(example);
             example.defense = 2;
             var __ = example.textObject.TypeWrite(ctrl, Color.Aqua, 10).AndThen(async () =>
             {
@@ -2840,17 +2906,14 @@ public class HuntingGame : View
             m.logicState = m.exploring;
         }
 
-        // TODO: refetch cards on new game
         // TODO: disable damage on choose answer 
 
-        // TODO: game menus
+        // TODO: 1-2 minute time limit per card
+        //       answer with good regardless if card was cleared or not
 
-        // TODO: disable audio play when hitting english texts
-        // TODO: await confirm (mouseclick, enter key/escape, gpad letter buttons)
+        // TODO: add some walking monsters on start screen
 
-        // TODO: show particle effect
-        //   particles.Add(tileIDs)
-        //   litters.Add(bloodIDs)
+        // TODO: in-game menu
 
         // TODO: example boss
         //       shoots stuffs
@@ -2876,6 +2939,9 @@ public class HuntingGame : View
 
         // TODO: visual improvements
         //       shaders, particles, camera movements
+        //       - particles.Add(tileIDs)
+        //       - litters.Add(bloodIDs)
+
 
 
 
@@ -2901,9 +2967,11 @@ public class HuntingGame : View
             messageColor = Color.Red;
         }
 
-        var audio = card.GetField("SentAudio") ?? card.GetField("VocabAudio");
-        //await Coroutine.AwaitTask(AnkiAudioPlayer.PlayWait(audio));
-        await ctrl.AwaitTask(AnkiAudioPlayer.PlayWait(audio));
+
+        await ctrl.AwaitTask(AnkiAudioPlayer.PlayWait(card.GetField("VocabAudio")));
+        await ctrl.Sleep(1);
+        await ctrl.AwaitTask(AnkiAudioPlayer.PlayWait(card.GetField("SentAudio")));
+
         await ctrl.Sleep(1);
 
         return correct;
@@ -3414,7 +3482,6 @@ public class HuntingGame : View
 
         });
 
-        gameMenu.Draw();
 
 
         //Graphics.SetColor(Color.Red);
@@ -3598,11 +3665,6 @@ public class HuntingGame : View
         UpdateMana(manaGain);
     }
 
-    public void StartBackgroundCoroutine(Func<Coroutine> fn)
-    {
-        runner.Create(fn);
-    }
-
     public void OnDefaultMonsterHit(Monster m)
     {
         var targetMonster = playing.subIndex >= 0 && playing.subIndex < playing.subTargets.Count()
@@ -3622,15 +3684,29 @@ public class HuntingGame : View
 
         if (m.health < 50 && m.health > 0 && !m.textObject.typewriting && m.text != m.card.GetExample())
         {
-            StartBackgroundCoroutine(async () =>
+            scripter.StartBackground(async (ctrl) =>
             {
-                // TODO: set example text
-                var text = m.textObject.text == m.card.GetVocabDef() ? m.card.GetVocab() : m.card.GetVocabDef();
+                //var text = m.textObject.text == m.card.GetVocabDef() ? m.card.GetVocab() : m.card.GetVocabDef();
+                var text = m.text == m.card.GetVocab()
+                         ? m.card.GetVocabDef()
+                         : m.text == m.card.GetExample()
+                         ? m.card.GetField("SetEng")
+                         : m.text;
+
+                if (m.textObject.text == text)
+                {
+                    return;
+                }
+
                 if (text != null)
                 {
                     m.textObject.SetText(text);
                     await m.textObject.TypeWrite(ctrl, Color.Red, 3);
                 }
+                await ctrl.Sleep(5);
+
+                m.textObject.SetText(m.text);
+                await m.textObject.TypeWrite(ctrl, Color.Red, 3);
             });
         }
         else if (!m.IsAlive())
@@ -3731,10 +3807,6 @@ public class HuntingGame : View
             if (hit && sword.enabled && m.IsAlive())
             {
                 m.Hit(sword.pos);
-                //if (m.health <= 0! && IsTarget(m))
-                //{
-                //    m.health = 1;
-                //}
             }
         }
 
@@ -3755,8 +3827,7 @@ public class HuntingGame : View
         monsterGroup.Update();
     }
 
-    Coroutine coKillSubTargets;
-    public async Coroutine KillSubTargets()
+    public async Coroutine KillSubTargets(CoroutineControl ctrl)
     {
         foreach (var m in playing.subTargets)
         {
@@ -3778,13 +3849,12 @@ public class HuntingGame : View
         if (!Keyboard.IsDown(KeyConstant.Tab))
         {
             components.Update();
-            runner.Update();
+            scripter.Update();
         }
 
         if (Keyboard.IsPressed(KeyConstant.F3))
         {
-            //coKillSubTargets?.TryCancel();
-            coKillSubTargets = runner.Create(KillSubTargets);
+            scripter.StartBackground(KillSubTargets);
         }
         if (Keyboard.IsDown(KeyConstant.Equals))
         {
@@ -3819,7 +3889,7 @@ public class HuntingGame : View
     public void Unload()
     {
         monsterGroup.Dispose();
-        runner.Cancel();
+        scripter.Cancel();
         AnkiAudioPlayer.Clear();
         world.Dispose();
         cam.Dipose();
@@ -4505,153 +4575,137 @@ public class SimpleMenu : View, IDisposable
     }
 }
 
-public class LoadView : View
-{
-    string DeckName { get; set; } = "";
-    public DeckNames DeckNames { get; set; } = new();
-
-    public List<CardInfo> NewCards { get; set; } = new();
-    public List<CardInfo> DueCards { get; set; } = new();
-
-
-    public void Draw()
-    {
-    }
-
-    public void Update()
-    {
-    }
-
-    public async Task<DeckNames> LoadDecks(string deckName)
-    {
-        var resp = (await AnkiConnect.FetchDecks()).Unwrap();
-        DeckNames = resp;
-        return resp ?? new DeckNames();
-    }
-
-    public async Task<IEnumerable<CardInfo>> LoadCards(string deckName)
-    {
-
-        var resp = await Task.WhenAll(
-            AnkiConnect.FetchNewCards(deckName),
-            AnkiConnect.FetchAvailableCards(deckName)
-        );
-        var newCards = resp[0].Unwrap();
-        var dueCards = resp[1].Unwrap();
-
-        foreach (var card in newCards)
-        {
-            card.IsNew = true;
-        }
-
-        NewCards = newCards.ToList();
-        DueCards = dueCards.ToList();
-
-        return dueCards.Union(newCards);
-    }
-}
 
 public class StartScreen : View
 {
+    public event Action OnStart = () => { };
+
     SharedState state;
     public SimpleMenu gameMenu = new SimpleMenu(new[] { "start", "select deck", "options", "exit" });
     public GameInput input = new();
     string selectedDeck = "";
 
-    CoroutineControl ctrl;
-    Corunner runner;
-
     Scripter scripter;
+    LoadingIcon loadingIcon = new();
+    RectangleF sideRect;
+    RectangleF mainRect;
+
+    CardLoader cardLoader;
     CardPreview testPreview = new CardPreview("北海道", new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2));
 
-    public StartScreen(SharedState state)
+    public StartScreen(SharedState state, CardLoader cardLoader)
     {
         this.state = state;
-        ctrl = new();
-        runner = new();
+        this.cardLoader = cardLoader;
+        loadingIcon.pos = new Vector2(state.center);
 
-        gameMenu.selectedColor = Color.Blue;
-        gameMenu.DisableItem(0);
+        input.sensitivity = 0.8f;
+
+        //gameMenu.selectedColor = Color.Blue;
+        gameMenu.DisableItem(2);
+        gameMenu.DisableItem(1);
 
         scripter = new Scripter(Script);
         scripter.Start();
+
+        sideRect = new RectangleF(0, 0, 300f, Graphics.GetHeight());
+        mainRect = new RectangleF(sideRect.Width, 0, Graphics.GetWidth() - sideRect.Width, Graphics.GetHeight());
+        loadingIcon.pos = mainRect.Center;
+
+        gameMenu.align = PosAlign.StartX;
+        gameMenu.SetPosition(new Vector2((sideRect.Width - gameMenu.Width) / 2, Graphics.GetHeight() / 2));
+        gameMenu.margin = 5;
     }
 
     public async Coroutine Script(CoroutineControl ctrl)
     {
-        var n = 20;
-        var pos = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
-        var dir = Xt.Vector2.RandomDir() * Random.Shared.Next(1, 2);
-        scripter.components.AddUpdate(() =>
-        {
-            pos += dir * n / 10;
-        });
-        scripter.components.AddDraw(() =>
-        {
-            Graphics.SetColor(Color.Green);
-            Graphics.Circle(DrawMode.Fill, pos, 30);
-        });
+        var done = false;
 
-        var c1 = new CoroutineControl();
-        var c2 = new CoroutineControl();
-        var h = new Dictionary<object, int>();
-        h[c1.Cancel] = 1;
-        h[c2.Cancel] = 2;
-        h[c1.Cancel] = 3;
-        Console.WriteLine(h[c1.Cancel]);
-        Console.WriteLine(h[c2.Cancel]);
-
-        while (true)
+        while (!done)
         {
-            for (int i = 0; i < 20; i++)
+            while (cardLoader.DueCards.Count() == 0)
             {
                 await ctrl.DelayCount(1);
             }
-            dir = Xt.Vector2.RandomDir() * Random.Shared.Next(1, 2);
-            n = Random.Shared.Next(30, 60);
+
+            var previews = new HashSet<CardPreview>();
+            var cos = new HashSet<Coroutine>();
+            var rect = mainRect.SplitY(2, 0);
+            rect.Inflate(0, -120);
+
+            var cards = cardLoader.DueCards.GetRandomItems(10);
+            var numColumns = cards.Count();
+            var itemWidth = rect.Width / numColumns;
+            var columns = (0..(cards.Count() - 1)).ToArray();
+            var columnIndex = 0;
+            columns.Shuffle();
+            PrintVar($"num colums={numColumns}, itemWidth={itemWidth}");
+
+            foreach (var card in cards)
+            {
+                var pos = new Vector2(
+                    rect.X + columns[columnIndex++] * itemWidth + itemWidth / 2,
+                    rect.Y + Random.Shared.Next(0, (int)rect.Height)
+                );
+
+                CardPreview cardPreview = new CardPreview(card.GetVocab(), pos);
+                previews.Add(cardPreview);
+
+                scripter.components.AddDraw(cardPreview.Draw);
+                scripter.components.AddUpdate(cardPreview.Update);
+
+                cos.Add(cardPreview.Animate(ctrl));
+                await ctrl.DelayCount(60);
+            }
+
+            await ctrl.DelayCount(120);
         }
     }
 
-    public async Coroutine BgScript(CoroutineControl ctrl)
+    public async Task LoadCards()
     {
-        for (var i = 0; i < 10; i++)
+        var savedStateTask = cardLoader.RestoreSavedState();
+        var decksTask = cardLoader.LoadDecks();
+
+        await Task.WhenAll(savedStateTask, decksTask);
+        selectedDeck = (await savedStateTask)?.lastDeckName ?? "";
+        var decks = await decksTask;
+
+        if (selectedDeck is null && decks.Count() > 0)
         {
-            Console.WriteLine($"bg {i}");
-            await ctrl.DelayCount(20);
+            selectedDeck = decks.Keys.FirstOrDefault("");
         }
+
+        if (!string.IsNullOrEmpty(selectedDeck))
+        {
+            await cardLoader.LoadCards(selectedDeck);
+        }
+        PrintVar("selectedDeck", selectedDeck);
     }
 
     public void Load()
     {
-        gameMenu.align = PosAlign.StartX;
-        gameMenu.SetPosition(new Vector2(gameMenu.Width / 2, Graphics.GetHeight() / 2));
-        gameMenu.margin = 5;
-
-        testPreview.runner = runner;
-        testPreview.ctrl = ctrl;
-        testPreview.Start();
-
-        // TODO:
-        /*
-        var deckName = loader.LoadLastDeck();
-        var decks = loader.LoadAvailableDecks();
-        if (deckName is null && decks.Length > 0)
+        scripter.StartBackground(async (ctrl) =>
         {
-            deckName = decks[0];
-        }
+            loadingIcon.Enable = true;
+            await ctrl.AwaitTask(LoadCards());
+            Console.WriteLine("done loading {0}", selectedDeck);
+            await ctrl.DelayCount(100);
+            PrintVar("c");
+            PrintVar(cardLoader.DueCards.Count());
+            loadingIcon.Enable = false;
+        });
+    }
 
-        var cards = loader.FetchDueCards(deckName);
+    public void CreateCardPreviews()
+    {
 
-        */
-
-        /*
-        scripter.Run
-        */
     }
 
     public void Unload()
     {
         input.Dispose();
+        scripter.Cancel();
     }
 
     public void Draw()
@@ -4666,17 +4720,15 @@ public class StartScreen : View
         var margin = 20;
         var deckInfoPos = new Vector2(leftBarWidth + margin, margin);
         Graphics.Print(selectedDeck, deckInfoPos.X, deckInfoPos.Y);
-        Xt.Graphics.PrintVertical("testing", deckInfoPos + Vector2.UnitY * 100);
 
-        testPreview.Draw();
         scripter.Draw();
+        loadingIcon.Draw();
     }
 
     public void Update()
     {
         if (input.IsPressed(ActionType.Up))
         {
-            scripter.StartBackground(BgScript);
             gameMenu.PrevItem();
         }
         else if (input.IsPressed(ActionType.Down))
@@ -4688,7 +4740,7 @@ public class StartScreen : View
             PerformAction();
         }
 
-        runner.Update();
+        loadingIcon.Update();
         scripter.Update();
     }
 
@@ -4697,7 +4749,11 @@ public class StartScreen : View
         var choice = gameMenu.GetChoice();
         if (choice == "start")
         {
-            Console.WriteLine("TODO");
+            OnStart();
+        }
+        if (choice == "exit")
+        {
+            Love.Event.Quit();
         }
         else
         {
@@ -4707,10 +4763,8 @@ public class StartScreen : View
 
     public class CardPreview
     {
-        public Corunner? runner;
-        public CoroutineControl? ctrl;
         TextEntity textObj;
-        Vector2 dir = Xt.Vector2.RandomDir();
+        Vector2 dir = Vector2.UnitY * Xt.MathF.RandomSign();
 
         public CardPreview(string str, Vector2 pos)
         {
@@ -4727,17 +4781,9 @@ public class StartScreen : View
             textObj.SetColor(Color.Transparent);
         }
 
-        public void Start()
+        public async Coroutine Animate(CoroutineControl ctrl)
         {
-            runner?.Create(StartScript);
-        }
-        public async Coroutine StartScript()
-        {
-            if (ctrl == null)
-            {
-                ctrl = new CoroutineControl();
-            }
-
+            textObj.SetColor(Color.Transparent);
             var tempColor = Color.Gray;
             int i;
             for (i = 1; i < textObj.text.Length; i++)
@@ -4746,7 +4792,7 @@ public class StartScreen : View
                 textObj.SetColor(tempColor, i, i);
                 await ctrl.DelayCount(5);
             }
-            await ctrl.DelayCount(150);
+            await ctrl.DelayCount(200);
             for (i = 1; i < textObj.text.Length; i++)
             {
                 textObj.SetColor(Color.Transparent, i - 1, i - 1);
@@ -4758,13 +4804,12 @@ public class StartScreen : View
         public void Draw()
         {
             textObj.Draw();
-            textObj.pos += dir;
-            dir *= 0.98f;
         }
 
         public void Update()
         {
-
+            textObj.pos += dir;
+            dir *= 0.98f;
         }
     }
 }
@@ -4837,21 +4882,102 @@ public class Scripter
             ctrl.Cancel();
         }
     }
+
+    public void Cancel()
+    {
+        ctrl.Cancel();
+        foreach (var ctrl in runningBgScripts.Values)
+        {
+            ctrl.Cancel();
+        }
+    }
 }
 
 public class CardLoader
 {
-    public void WriteSaveState(SavedState save)
+    public DeckNames DeckNames { get; set; } = new();
+
+    public List<CardInfo> NewCards { get; set; } = new();
+    public List<CardInfo> DueCards { get; set; } = new();
+
+    public bool IsLoadingDecks { get; set; }
+    public bool IsLoadingCards { get; set; }
+
+    Task<DeckNames>? loadDecksTask;
+    Task<IEnumerable<CardInfo>>? loadCardsTask;
+
+    public async Task<DeckNames> LoadDecks()
     {
-        var contents = JsonSerializer.Serialize(save);
-        System.IO.File.WriteAllText(Config.savedStateFilename, contents);
+        if (loadDecksTask != null)
+        {
+            return await loadDecksTask;
+        }
+
+        loadDecksTask = Task.Run(async () =>
+        {
+            IsLoadingDecks = true;
+            using var _ = Defer.Run(() => IsLoadingDecks = false);
+
+            var resp = (await AnkiConnect.FetchDecks()).Unwrap();
+            DeckNames = resp;
+
+            return resp ?? new DeckNames();
+        });
+
+        var result = await loadDecksTask;
+        loadDecksTask = null;
+
+        return result;
     }
 
-    public SavedState RestoreSavedState()
+    public async Task<IEnumerable<CardInfo>> LoadCards(string deckName)
+    {
+        if (loadCardsTask != null)
+        {
+            return await loadCardsTask;
+        }
+
+        loadCardsTask = Task.Run(async () =>
+        {
+            var cardCountLimit = 100;
+            IsLoadingCards = true;
+            using var _ = Defer.Run(() => IsLoadingDecks = false);
+
+            var resp = await Task.WhenAll(
+                AnkiConnect.FetchNewCards(deckName, cardCountLimit),
+                AnkiConnect.FetchAvailableCards(deckName, cardCountLimit)
+            );
+            var newCards = resp[0].Unwrap();
+            var dueCards = resp[1].Unwrap();
+
+            foreach (var card in newCards)
+            {
+                card.IsNew = true;
+            }
+
+            NewCards = newCards.ToList();
+            DueCards = dueCards.ToList();
+            //PrintVar("load card task", dueCards.Count());
+
+            return dueCards.Union(newCards);
+        });
+
+        var result = await loadCardsTask;
+        loadCardsTask = null;
+        return result;
+    }
+
+    public async Task WriteSaveState(SavedState save)
+    {
+        var contents = JsonSerializer.Serialize(save);
+        await System.IO.File.WriteAllTextAsync(Config.savedStateFilename, contents);
+    }
+
+    public async Task<SavedState> RestoreSavedState()
     {
         try
         {
-            var contents = System.IO.File.ReadAllText(Config.savedStateFilename);
+            var contents = await System.IO.File.ReadAllTextAsync(Config.savedStateFilename);
             var savedState = JsonSerializer.Deserialize<SavedState>(contents);
             return savedState ?? new SavedState();
         }
@@ -4859,5 +4985,58 @@ public class CardLoader
         catch (System.IO.FileNotFoundException) { }
 
         return new SavedState();
+    }
+}
+
+
+public class LoadingIcon
+{
+    public Vector2 pos;
+    public float radians1;
+    public float radians2;
+    public float stepSize = 0.01f;
+    public float radius = 50;
+    public float counter = 100;
+    public Color color = Color.White;
+
+    public bool Enable { get; set; }
+
+    public void Update()
+    {
+        if (!Enable)
+        {
+            return;
+        }
+
+        radians1 += stepSize;
+        radians2 += stepSize * Random.Shared.NextSingle();
+        if (counter-- <= 0)
+        {
+            stepSize = Random.Shared.NextSingle() / 2 * Xt.MathF.RandomSign();
+            counter = 100;
+        }
+    }
+
+    public void Draw()
+    {
+        if (!Enable)
+        {
+            return;
+        }
+
+        Graphics.Push();
+        Graphics.Translate(pos.X, pos.Y);
+        Graphics.Rotate(radians2);
+        Graphics.SetColor(color);
+        Graphics.Circle(DrawMode.Line, 0, 0, radius - counter / 5);
+        Graphics.Circle(DrawMode.Line, 0, 0, radius);
+        Graphics.Rotate(radians1);
+        Graphics.Rectangle(DrawMode.Line, -radius, -radius, radius * 2, radius * 2);
+        Graphics.Rotate(radians2);
+        Graphics.Rectangle(DrawMode.Line, -radius / 2, -radius / 2, radius, radius);
+        Graphics.Pop();
+
+        //Graphics.SetFont(SharedState.self.fontSmall);
+        //Graphics.Print("Loading", pos.X - radius, pos.Y);
     }
 }

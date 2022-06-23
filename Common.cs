@@ -1303,7 +1303,6 @@ public class Defer
         public Disposeable(Action action, string name = "") { this.action = action; this.name = name; }
         public void Dispose()
         {
-            Console.WriteLine("Defer.Dispose |{0}|", name);
             if (action != null) action();
             action = null;
         }
@@ -1336,14 +1335,22 @@ public class DebugUtils
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         });
     }
-    public static void PrintVar(object obj)
+    public static void PrintVar(params object[] objs)
     {
-        var formatted = JsonSerializer.Serialize(obj, new JsonSerializerOptions
+        var sb = new StringBuilder();
+        foreach (var obj in objs)
         {
-            WriteIndented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        });
-        Console.WriteLine(formatted);
+
+            var formatted = JsonSerializer.Serialize(obj, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
+            sb.Append(formatted);
+            sb.Append(" ");
+        }
+        Console.WriteLine(sb.ToString());
+        sb.Clear();
     }
 }
 
@@ -1475,6 +1482,7 @@ public class GameInput : IDisposable
     Vector2 mouseAxis = Vector2.Zero;
     Vector2 gpadLeftAxis = Vector2.Zero;
     Vector2 gpadRightAxis = Vector2.Zero;
+    public float sensitivity = 0.8f;
 
     public GameInput()
     {
@@ -1605,9 +1613,8 @@ public class GameInput : IDisposable
 
     private void OnMouseMove(MouseHandler.MoveEvent ev)
     {
-        var n = 50;
-        mouseAxis.X = Xt.MathF.Clamp(mouseAxis.X + ev.dx / n, -1, 1);
-        mouseAxis.Y = Xt.MathF.Clamp(mouseAxis.Y + ev.dy / n, -1, 1);
+        mouseAxis.X = Xt.MathF.Clamp(mouseAxis.X + ev.dx / 200 * sensitivity, -1, 1);
+        mouseAxis.Y = Xt.MathF.Clamp(mouseAxis.Y + ev.dy / 200 * sensitivity, -1, 1);
 
         var xVal = MathF.Abs(mouseAxis.X);
         var yVal = MathF.Abs(mouseAxis.Y);
