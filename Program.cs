@@ -154,7 +154,6 @@ public class Program : Scene
         state.windowEntity.rect = new RectangleF(0, 0, Graphics.GetWidth(), Graphics.GetHeight());
         state.windowEntity.pos = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
 
-        //state.lastDeckName = RestoreSavedState().lastDeckName;
 
         //var gameView = new GameView(deckName, state);
         //state.SetActiveView(gameView);
@@ -302,7 +301,7 @@ public class Program : Scene
         var win = state.windowEntity;
         foreach (var c in win.GetComponents())
         {
-            c.Update(win);
+            c.Update();
         }
 
         Callbacks.PostUpdate();
@@ -320,7 +319,7 @@ public class Program : Scene
         var win = state.windowEntity;
         foreach (var c in win.GetComponents())
         {
-            c.Draw(win);
+            c.Draw();
         }
 
         Graphics.SetFont(state.fontSmall);

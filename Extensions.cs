@@ -4,7 +4,6 @@ namespace gganki_love;
 using Love;
 using Co = AwaitableCoroutine.Coroutine;
 
-
 public static class RangeXt
 {
     public static int[] ToArray(this Range range)
@@ -119,13 +118,13 @@ public static class ListXt
         return default(T);
     }
     /*
-	public static T? GetRandom<T>(this List<T> list)
-	{
-		if (list.Count() == 0) return default(T);
-		var i = Random.Shared.Next(0, list.Count());
-		return list[i];
-	}
-	*/
+    public static T? GetRandom<T>(this List<T> list)
+    {
+        if (list.Count() == 0) return default(T);
+        var i = Random.Shared.Next(0, list.Count());
+        return list[i];
+    }
+    */
 }
 
 public static class StringXt

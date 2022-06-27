@@ -1,4 +1,5 @@
 global using static gganki_love.DebugUtils;
+global using static gganki_love.VectorUtils;
 
 using Love;
 using System;
@@ -38,6 +39,7 @@ public class Script : View
 
         game = new HuntingGame(state, cardLoader);
         startScreen = new StartScreen(state, cardLoader);
+        startScreen.autoStart = true;
         startScreen.OnStart += async () =>
         {
             game.Load();
@@ -70,6 +72,7 @@ public class Script : View
 
     public void Load()
     {
+
         _ = LoadCards();
         currentView.Load();
 
@@ -1044,11 +1047,24 @@ public class Consumable : IEntity
     public Vector2 pos { get { return entity.pos; } set { entity.pos = value; } }
 
     public float healthGain = 0;
+    public string text;
+    public Font? font;
 
     public Consumable(int tileID)
     {
         entity = Entity.Create(tileID);
         healthGain = Random.Shared.Next(10, 30);
+    }
+
+    public void Draw()
+    {
+        entity.Draw();
+        if (font != null) Graphics.SetFont(font);
+        var w = (font ?? Graphics.GetFont()).GetWidth(text);
+        Graphics.SetColor(Color.DarkCyan);
+        Graphics.Print(text, pos.X - w / 2 - 2, pos.Y - 2);
+        Graphics.SetColor(Color.White);
+        Graphics.Print(text, pos.X - w / 2, pos.Y);
     }
 
     public static Consumable CreateRandom()
@@ -1080,29 +1096,15 @@ public class ItemGroup
         return item;
     }
 
-    public void SpawnAt(Vector2 pos)
+    public Consumable SpawnAt(Vector2 pos)
     {
         var item = Consumable.CreateRandom();
-        item.pos = pos + Xt.Vector2.RandomDir() * Rand.Next(50, 70);
+        item.pos = pos + Xt.Vector2.RandomDir() * Rand.Next(-50, 50);
         foods.Add(item);
+        return item;
     }
 
 
-    //public Monster SpawnMonster(CardInfo card, CardInfo.ContentType type)
-    //{
-    //	var (text, audio) = card.GetContents(type);
-    //	var font = SharedState.self.fontAsian;
-    //	var mon = new Monster(TileID.RandomMonsterID(), text ?? "", font);
-
-    //	mon.OnMonsterKill += OnMonsterKill;
-    //	mon.group = this;
-    //	mon.audioFilename = audio ?? "";
-    //	mon.card = card;
-    //	mon.pos = Xt.Vector2.Random();
-    //	//mon.OnMonsterHit += OnMonsterHit;// TODO
-
-    //	return mon;
-    //}
 
     public void Clear()
     {
@@ -1135,6 +1137,7 @@ public class ItemGroup
         foreach (var item in foods.Iterate())
         {
             item.Update();
+            foods.Move(item);
         }
 
     }
@@ -1160,10 +1163,6 @@ public class ItemGroup
 
 public class MonsterGroup
 {
-    public event Action<Monster> OnKill = (m) => { };
-    public event Action<Monster> OnHit = (m) => { };
-
-
     PartitionedList<Monster> monsters = new PartitionedList<Monster>(SharedState.self.worldTileSize);
 
     Entity? defaultTarget;
@@ -1181,16 +1180,6 @@ public class MonsterGroup
         defaultTarget = target;
     }
 
-    private void OnMonsterKill(Monster m)
-    {
-        OnKill(m);
-    }
-
-    private void OnMonsterHit(Monster m)
-    {
-        OnHit(m);
-    }
-
     public Monster SpawnMonster(string text, int? tileIDArg = null)
     {
         var tileID = tileIDArg.GetValueOrDefault(TileID.RandomMonsterID());
@@ -1200,8 +1189,6 @@ public class MonsterGroup
 
         mon.pos = world != null ? Xt.Vector2.Random(world.Width, world.Height) : Xt.Vector2.Random();
         mon.group = this;
-        mon.OnMonsterKill += OnMonsterKill;
-        mon.OnMonsterHit += OnMonsterHit;
         mon.target = defaultTarget;
 
         monsters.Add(mon);
@@ -1210,35 +1197,9 @@ public class MonsterGroup
     }
 
 
-    //public Monster SpawnMonster(CardInfo card, CardInfo.ContentType type)
-    //{
-    //	var (text, audio) = card.GetContents(type);
-    //	var font = SharedState.self.fontAsian;
-    //	var mon = new Monster(TileID.RandomMonsterID(), text ?? "", font);
-
-    //	mon.OnMonsterKill += OnMonsterKill;
-    //	mon.group = this;
-    //	mon.audioFilename = audio ?? "";
-    //	mon.card = card;
-    //	mon.pos = Xt.Vector2.Random();
-    //	//mon.OnMonsterHit += OnMonsterHit;// TODO
-
-    //	return mon;
-    //}
-
     public void Clear()
     {
         monsters.Clear();
-    }
-    public void RegisterOnHit(Action<Monster> fn)
-    {
-        OnHit -= fn;
-        OnHit += fn;
-    }
-    public void RegisterOnKill(Action<Monster> fn)
-    {
-        OnKill -= fn;
-        OnKill += fn;
     }
 
     public void SpawnFromCards(List<CardInfo> cards)
@@ -1580,9 +1541,6 @@ public class Monster : IPos
         SubTarget = 1,
     }
 
-    public event Action<Monster> OnMonsterKill = (e) => { };
-    public event Action<Monster> OnMonsterHit = (e) => { };
-
     public enum State { Exploring, Fleeing, Approaching, Attacked, Dead, Idle }
     public Entity entity;
     public Entity? target;
@@ -1608,6 +1566,10 @@ public class Monster : IPos
     public float health = 100;
     public float defense = 1;
     public Flags flags = 0;
+    public bool hidden = false;
+
+    public int textDir = Random.Shared.NextSingle() < 0.5f ? 1 : -1;
+
 
     public float speed
     {
@@ -1676,10 +1638,16 @@ public class Monster : IPos
         return Vector2.Distance(pos, m.pos) < rect.DiagonalLength() * 2.0f;
     }
 
+    float lastChangeDir = Love.Timer.GetTime();
+    float textOffset = 0;
     public void Update()
     {
+        var prevX = entity.pos.X;
+        var prevPos = entity.pos;
         entity.Update();
         logicState.Update();
+
+
 
         if (logicState.ID != State.Dead && health <= 0)
         {
@@ -1689,12 +1657,39 @@ public class Monster : IPos
             }
             textObject.SetColor(Color.Gray);
             logicState = dead;
-            OnMonsterKill(this);
         }
+
+        var xStep = entity.pos.X - prevX;
+        textOffset = !IsAlive() ? 0
+                   : target?.pos != null ? Xt.MathF.Clamp(Vector2.Normalize(target.pos - entity.pos).X * 50, -50, 50)
+                   : Xt.MathF.Clamp(textOffset + xStep * 0.5f, -35, 35);
+
+        var now = Love.Timer.GetTime();
+        if (now - lastChangeDir > 3)
+        {
+            bool changedDir = entity.FaceDirectionX(entity.pos - prevPos);
+            if (changedDir)
+            {
+                lastChangeDir = now;
+            }
+        }
+
+        var t = textObject;
+        var w = t.GetWidth();
+        var h = t.GetHeight();
+        var x = entity.rect.Center.X - w / 2;
+        var y = entity.rect.Top - h - entity.rect.Height / 2;
+
+        t.pos = new Vector2(x + textOffset, y);
     }
 
     public void Draw()
     {
+        if (hidden)
+        {
+            return;
+        }
+
         entity.Draw();
         if ((flags & Monster.Flags.SubTarget) != 0)
         {
@@ -1705,35 +1700,37 @@ public class Monster : IPos
         //Graphics.Rectangle(DrawMode.Line, entity.rect);
 
 
-        var t = textObject;
-        var w = t.GetWidth();
-        var h = t.GetHeight();
-        var x = entity.rect.Center.X - w / 2;
-        var y = entity.rect.Top - h * 1.4f;
-
-        t.pos = new Vector2(x, y);
-
         Graphics.SetColor(IsAlive() ? Color.White : Color.WhiteSmoke);
         Graphics.SetFont(SharedState.self.fontAsian);
 
+        Graphics.SetColor(textColor ?? entity.color);
+        textObject.Draw();
 
+        var a = MathF.Min(textObject.rect.Width / 4, 20);
+
+        var p1 = new Vector2(textObject.rect.Center.X - a, textObject.rect.Bottom);
+        var p2 = new Vector2(textObject.rect.Center.X + a, textObject.rect.Bottom);
         Graphics.SetColor(textObject.bgColor);
         Graphics.Polygon(
             DrawMode.Fill,
-            new Vector2(rect.Center.X - 30, textObject.rect.Bottom),
+            p1,
             new Vector2(rect.Center.X, rect.Top),
-            new Vector2(rect.Center.X + 30, textObject.rect.Bottom)
+            p2
         );
         Graphics.SetColor(Color.Gray);
         Graphics.Polygon(
             DrawMode.Line,
-            new Vector2(rect.Center.X - 30, textObject.rect.Bottom),
+            new Vector2(p1.X - 1, p1.Y),
             new Vector2(rect.Center.X, rect.Top),
-            new Vector2(rect.Center.X + 30, textObject.rect.Bottom)
+            new Vector2(p2.X + 1, p2.Y)
         );
+        var c = textObject.bgColor;
+        c.Af = 1;
+        Graphics.SetColor(c);
+        Graphics.Line(p1, p2);
 
-        Graphics.SetColor(textColor ?? entity.color);
-        textObject.Draw();
+
+
 
         Graphics.SetColor(entity.color);
         if (logicState.ID != State.Dead)
@@ -1764,21 +1761,13 @@ public class Monster : IPos
 
     public bool CanHit()
     {
+        if (!IsAlive())
+        {
+            return false;
+        }
         return !(logicState.ID == State.Attacked || logicState.ID == State.Dead || logicState.ID == State.Fleeing);
     }
 
-    public void Hit(Vector2? weapon = null)
-    {
-        if (!CanHit())
-        {
-            return;
-        }
-
-        if (health > 0)
-        {
-            OnMonsterHit(this);
-        }
-    }
 
     public void Attack(WeaponEntity? weapon = null, float damage = 1)
     {
@@ -2238,6 +2227,21 @@ public class World
         gridCanvas.Dispose();
     }
 
+    public bool Contains(Vector2 pos)
+    {
+        var start = origin - Vector2.One;
+        var end = size + Vector2.One;
+        if (pos.X < start.X
+         || pos.X > end.X
+         || pos.Y < start.Y
+         || pos.Y > end.Y)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     public Vector2 RestrictPosition(Vector2 pos)
     {
         var margin = 500;
@@ -2323,6 +2327,112 @@ public class FX
     }
 }
 
+public class EventManager
+{
+    public delegate void MonsterHitFn(Monster m, Player attacker);
+    public delegate void MonsterKillFn(Monster m, Player attacker);
+    public delegate void PlayerHitFn(Player player, Monster attacker);
+    public delegate void ItemPickupFn(IEntity item, Player pickuper);
+    public delegate void EventFn(object eventArg);
+
+    event MonsterHitFn OnMonsterHit = (m, p) => { };
+    event MonsterKillFn OnMonsterKill = (m, p) => { };
+    event PlayerHitFn OnPlayerHit = (p, m) => { };
+    event ItemPickupFn OnItemPickup = (i, p) => { };
+    event EventFn OnEvent = (e) => { };
+
+
+    public void AddOnEvent(EventFn fn)
+    {
+        OnEvent -= fn;
+        OnEvent += fn;
+    }
+    public void RemoveOnEvent(EventFn fn)
+    {
+        OnEvent -= fn;
+    }
+
+    public void AddOnMonsterHit(MonsterHitFn fn)
+    {
+        OnMonsterHit -= fn;
+        OnMonsterHit += fn;
+    }
+    public void RemoveOnMonsterHit(MonsterHitFn fn)
+    {
+        OnMonsterHit -= fn;
+    }
+    public void AddOnMonsterKill(MonsterKillFn fn)
+    {
+        OnMonsterKill -= fn;
+        OnMonsterKill += fn;
+    }
+    public void RemoveOnMonsterKill(MonsterKillFn fn)
+    {
+        OnMonsterKill -= fn;
+    }
+
+    public void AddOnPlayerHit(PlayerHitFn fn)
+    {
+        OnPlayerHit -= fn;
+        OnPlayerHit += fn;
+    }
+    public void RemoveOnPlayerHit(PlayerHitFn fn)
+    {
+        OnPlayerHit -= fn;
+    }
+    public void AddOnItemPickup(ItemPickupFn fn)
+    {
+        OnItemPickup -= fn;
+        OnItemPickup += fn;
+    }
+    public void RemoveOnItemPickup(ItemPickupFn fn)
+    {
+        OnItemPickup -= fn;
+    }
+
+    public void EmitMonsterHit(Monster m, Player attacker)
+    {
+        OnMonsterHit(m, attacker);
+    }
+    public void EmitMonsterKill(Monster m, Player attacker)
+    {
+        OnMonsterKill(m, attacker);
+    }
+    public void EmitPlayerHit(Player player, Monster attacker)
+    {
+        OnPlayerHit(player, attacker);
+    }
+
+    public void EmitItemPickup(IEntity item, Player pickuper)
+    {
+        OnItemPickup(item, pickuper);
+    }
+    public void EmitEvent(object arg)
+    {
+        OnEvent(arg);
+    }
+
+    public async Coroutine<T?> WaitEvent<T>(CoroutineControl ctrl)
+    {
+        T? x = default(T);
+        var done = false;
+        EventFn handler = e =>
+        {
+            if (e is T t)
+            {
+                x = t;
+                done = true;
+            }
+        };
+        AddOnEvent(handler);
+        using (Defer.Run(() => RemoveOnEvent(handler)))
+        {
+            while (!done) await ctrl.Yield();
+            return x;
+        }
+    }
+}
+
 public class HuntingGame : View
 {
 
@@ -2331,6 +2441,7 @@ public class HuntingGame : View
 
     public class Playing
     {
+        public int kills = 0;
         public int subIndex = 0;
         public CardInfo card = new CardInfo();
         public HuntState state = HuntState.Vocab;
@@ -2422,18 +2533,24 @@ public class HuntingGame : View
     ComponentRegistry components = new ComponentRegistry();
     Scripter scripter;
 
-    List<CardInfo> cards = new List<CardInfo>();
 
     public State gameState = State.Playing;
     public Gameover gameover = new Gameover();
     public Playing playing = new Playing();
     public Clear clear = new Clear();
-    public float elapsed = 0;
-    public List<CardInfo> allCards = new List<CardInfo>();
-    public int cardIndex = 0;
 
+
+
+    public float playTime = 0;
+    public int cardIndex = 0;
+    public List<CardInfo> allCards = new List<CardInfo>();
+    List<CardInfo> cards = new List<CardInfo>();
+
+    public EventManager eventManager = new();
 
     public GameInput input = new();
+
+    public TextTimer textTimer;
 
     CardLoader cardLoader;
 
@@ -2449,7 +2566,11 @@ public class HuntingGame : View
         itemGroup = new ItemGroup(this);
         scripter = new Scripter(StartGameScript);
 
+        textTimer = new TextTimer();
+        textTimer.text.pos = new Vector2(Graphics.GetWidth(), Graphics.GetHeight());
+        textTimer.text.align = PosAlign.EndX | PosAlign.EndY;
 
+        components.AddComponent(textTimer);
     }
 
     public void Load()
@@ -2524,7 +2645,7 @@ public class HuntingGame : View
 
     public List<CardInfo> CreateCards()
     {
-        var numText = 30;
+        var numText = 10;
         var deckName = state.lastDeckName ?? state.deckNames.Keys.First();
         var cards = state.deckCards?[deckName]?.ToList() ?? new List<CardInfo>();
 
@@ -2545,16 +2666,14 @@ public class HuntingGame : View
     public async Coroutine<Monster> GetMonsterKill(CoroutineControl ctrl)
     {
         Monster? monster = null;
-        var onKill = (Monster m) =>
+        EventManager.MonsterKillFn onKill = (m, _) =>
         {
             monster = m;
         };
 
-        monsterGroup.RegisterOnKill(onKill);
-        using var _ = Defer.Run(() =>
-        {
-            monsterGroup.OnKill -= onKill;
-        });
+        eventManager.AddOnMonsterKill(onKill);
+        using var _ = Defer.Run(() => eventManager.RemoveOnMonsterKill(onKill));
+
         while (monster == null)
         {
             await ctrl.Yield();
@@ -2665,6 +2784,9 @@ public class HuntingGame : View
 
         if (!tryAgain)
         {
+            playing.kills = 0;
+            //textTimer.Stop();
+
             var card = GetNextCard();
             if (card == null)
             {
@@ -2686,28 +2808,13 @@ public class HuntingGame : View
 
         //SetPlayingCard("脱ぐ");
 
-        //Console.WriteLine("current card: `{0}`, {1}", playing.card.GetVocab(), playing.card.cardId);
-
         monsterGroup.Clear();
-        monsterGroup.RegisterOnKill(OnMonsterKill);
-        monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
-
         itemGroup.Clear();
 
-        //monsterGroup = MonsterGroup.CreateFromCards(cards);
-
-
-        /*
-		var monsters = monsterGroup.Iterate().ToArray();
-		if (monsters.Length > 0)
-		{
-			playing.subIndex = 0;
-			playing.target = monsters[0];
-			playing.state = HuntState.Init;
-			//NextHuntState();
-		}
-		*/
-
+        eventManager.AddOnMonsterKill(OnDefaultMonsterKill);
+        eventManager.AddOnMonsterHit(OnDefaultMonsterHit);
+        eventManager.AddOnPlayerHit(OnDefaultPlayerHit);
+        eventManager.AddOnItemPickup(OnDefaultItemPickup);
     }
 
 
@@ -2771,13 +2878,15 @@ public class HuntingGame : View
                 }
             }
 
-            using var _5 = Defer.Run(() =>
-            {
-                PrintVar("main script ended");
-            });
 
             if (startHunt)
             {
+                if (!tryAgain)
+                {
+                    textTimer.StartCountDown(90);
+                }
+
+
                 var subCtrl = new CoroutineControl();
                 var gameScript = StartHuntScript(subCtrl);
                 await subCtrl.While(() => gameState == State.Playing);
@@ -2795,7 +2904,13 @@ public class HuntingGame : View
                 {
                     _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Good);
                 }
+
+                if (textTimer.IsDone() && playing.kills > 2)
+                {
+                    gameState = State.Clear;
+                }
             }
+
 
             if (gameState == State.Clear)
             {
@@ -2824,15 +2939,39 @@ public class HuntingGame : View
         playing.subTargets.Clear();
     }
 
+
+    enum ChooseState
+    {
+        Start = 0,
+        FindItems = 1,
+        HuntMonster = 2,
+    }
+
     public async Coroutine<bool> StartChooseAnswerScript(CoroutineControl ctrl)
     {
+        playing.textProgress.SetText("");
+
         Color messageColor = Color.White;
         Color bgColor = new Color(20, 20, 20, 200);
         string message = "";
         Monster? killed = null;
         HashSet<Monster> questionMonsters = new HashSet<Monster>();
+        var items = new List<Consumable>();
+        var startPlayerPos = Vector2.Zero;
+        var hasMoved = false;
+        var chooseState = ChooseState.FindItems;
+        var numLetters = 0;
+        var card = playing.card;
+        var choices = CreateChoices(card, 7);
+        var (vocab, example) = CreateQuestion(card);
 
-        var onHit = (Monster m) =>
+        foreach (var c in choices)
+        {
+            c.hidden = true;
+        }
+
+
+        EventManager.MonsterHitFn onHit = (m, _) =>
         {
             var damage = Random.Shared.Next(40, 60);
             m.Attack(Vector2.Zero, damage);
@@ -2843,43 +2982,213 @@ public class HuntingGame : View
             }
         };
 
-        var onKill = (Monster m) =>
+        EventManager.MonsterKillFn onKill = (m, _) => killed = m;
+
+        var update = () =>
         {
-            killed = m;
+            foreach (var e in items)
+            {
+                e.pos += e.entity.dir;
+            }
+            if (chooseState == ChooseState.FindItems)
+            {
+
+                foreach (var e in items)
+                {
+                    var d = Vector2.Distance(e.pos, world.Center);
+                    if (MathF.Floor(Love.Timer.GetTime()) % 5 == 0
+                       && d < world.size.X / 2
+                       && d > 100)
+                    {
+                        e.entity.dir = Vector2.Rotate(e.entity.dir, Random.Shared.Next(-45, 45));
+                    }
+                    if (d > Graphics.GetWidth() / 2)
+                    {
+                        e.entity.dir = Vector2.Normalize(world.Center - e.pos) * e.entity.dir.Length();
+                    }
+                }
+            }
+
+            if (!hasMoved && startPlayerPos != player.pos)
+            {
+                hasMoved = true;
+            }
         };
 
         var draw = () =>
         {
             if (message != "")
             {
-                var pos = SharedState.self.centerTop + Vector2.UnitY * 50;
-                Graphics.SetColor(bgColor);
-                Xt.Graphics.PrintlnRect(DrawMode.Fill, message, SharedState.self.fontRegular);
+                var pos = SharedState.self.centerBottom - Vector2.UnitY * 100;
+                //Graphics.SetColor(bgColor);
+                //Xt.Graphics.PrintlnRect(DrawMode.Fill, message, SharedState.self.fontRegular);
                 Graphics.SetColor(messageColor);
                 Xt.Graphics.PrintPos = pos;
-                Xt.Graphics.Println(message, SharedState.self.fontRegular);
+                Xt.Graphics.Println(message, SharedState.self.fontMedium);
+            }
+        };
+        EventManager.ItemPickupFn onItemPickup = (IEntity item, Player player) =>
+        {
+            if (!(item is Consumable food) || !hasMoved)
+            {
+                return;
+            }
+            var vocab = playing.card.GetVocab() ?? "";
+
+            itemGroup.Remove(item);
+            if (!vocab.Contains(food.text))
+            {
+                player.Hit(40);
+            }
+            else
+            {
+                numLetters--;
+                if (numLetters <= 0)
+                {
+                    eventManager.EmitEvent(ChooseState.FindItems);
+
+                }
+                else
+                {
+                    message = $"Find matching letters ({numLetters})";
+                }
+                //player.AddHealth(food.healthGain);
             }
         };
 
-        monsterGroup.RegisterOnHit(onHit);
-        monsterGroup.RegisterOnKill(onKill);
-        monsterGroup.OnHit -= OnDefaultMonsterHit;
-        components.RemoveDraw(DrawInterface);
+        eventManager.AddOnMonsterHit(onHit);
+        eventManager.AddOnMonsterKill(onKill);
+        eventManager.AddOnItemPickup(onItemPickup);
+        eventManager.RemoveOnPlayerHit(OnDefaultPlayerHit);
+        eventManager.RemoveOnMonsterHit(OnDefaultMonsterHit);
+        eventManager.RemoveOnMonsterKill(IncrementMonsterKillCount);
+        eventManager.RemoveOnItemPickup(OnDefaultItemPickup);
+
+        //components.RemoveDraw(DrawInterface);
         components.AddDraw(draw);
+        components.AddUpdate(update);
 
         using var _ = Defer.Run(() =>
         {
-            monsterGroup.OnHit -= onHit;
-            monsterGroup.OnKill -= onKill;
-            monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
+            eventManager.RemoveOnMonsterHit(onHit);
+            eventManager.RemoveOnMonsterKill(onKill);
+            eventManager.AddOnMonsterHit(OnDefaultMonsterHit);
+            eventManager.AddOnPlayerHit(OnDefaultPlayerHit);
+            eventManager.AddOnMonsterKill(IncrementMonsterKillCount);
+            eventManager.AddOnItemPickup(OnDefaultItemPickup);
+            eventManager.RemoveOnItemPickup(onItemPickup);
             components.RemoveDraw(draw);
+            components.RemoveUpdate(update);
         });
 
-        var card = playing.card;
-        var choices = CreateChoices(card, 7);
-        var (vocab, example) = CreateQuestion(card);
+
+        var texts = cards.GetRandomItems(2).Select(c => c.GetVocab() ?? "").ToList();
+        var numVocab = 2;
+        var vocabParts = vocab.text.Where(c => JP.IsKanaOrKanji(c) || char.IsLetterOrDigit(c)).ToArray();
+        for (var i = 0; i < 2; i++)
+        {
+            texts.Add(vocab.text);
+        }
+
+        foreach (var text in texts)
+        {
+            foreach (var ch in text)
+            {
+                if (!JP.IsKanaOrKanji(ch) && !char.IsLetterOrDigit(ch))
+                {
+                    continue;
+                }
+                var item = itemGroup.SpawnAt(vocab.pos + Vector2.UnitY * 20);
+                item.text = ch.ToString();
+                item.font = state.fontMedium;
+                item.entity.dir = Xt.Vector2.RandomDir() * Random.Shared.Next(2, 3);
+                items.Add(item);
+            }
+        }
+
+        numLetters = numVocab * vocabParts.Length;
+        message = $"Find matching letters ({numLetters})";
+
+        // TODO: on choose answer stage, pick pieces of text
+        // TODO: prevent attacking when clickng to next card
+        // TODO: 
+        //       - less monsters at start
+        //       - spawn more monsters per countdown
+        //       - spawn targets along other monsters
+
+        // TODO: add some walking monsters on start screen
+
+        // TODO: in-game menu
+
+        // TODO: example boss
+        //       shoots stuffs
+        //       - other monsters walks outside of grid
+        //       - focus camera on big guy and play text
+        //       - pick up sword with the matching text
+        //       - show kanji damage effect per hit
+
+        // TODO: general codebase clean up
+        //       fix all warnings
+
+        // TODO: clean up interface, create release build
+        //       move game outside script file
+
+        // TODO: start actual day-to-day testing
+
+        // TODO: add basic floors walls, decorations (random biomes)
+        //       canvas layers (floor, walls, entities, interface)
+
+
+        // TODO: turn-based mode: monster only move when the player moves
+        // TODO: skirmish
+
+        // TODO: refactoring
+        //       decouple events 
+
+        // TODO: handle failed HTTP requests
+
+        // TODO: visual improvements
+        //       shaders, particles, camera movements
+        //       - particles.Add(tileIDs)
+        //       - litters.Add(bloodIDs)
+
+        // TODO: random dungeon generation
+
+        // TODO: add other game types
+        //       - search for pieces in maze
+
+        // So... making this into a general purpose
+        // anki interface would take more work, which
+        // involves making sure that the platform
+        // is supported, as well as the anki
+        // and the plugins are compatible with each user. 
+        // So the plan would be just to release
+        // it as a demo with some pre-installed
+        // decks installed.
+        // I'll add some contact info and
+        // future plans in the game, and
+        // see if there are any interest for this kind of stuffs.
+        // If none, well, it works well as a portfolio
+        // addition.
+        // While play testing and waiting for feedback,
+        // I should move on to next projects.
+        // I've been thinking of porting the voxel editor
+        // to monogame. Monogame does have (basic?) 3D support.
+        // More importantly, I should start doing
+        // smaller, more focused projects with well-defined
+        // scopes and does one thing well.
+        // It's either for utility or amusement.
+        // Then I start applying for work.
+
+        // TODO: in-game zoom in/out
+        // set camera on question
+        // pan to player 
+        // await camera.panTo()
+        // await camera.zoomIn()
+        // await camera.zoomOut()
 
         player.pos = vocab.pos - Vector2.UnitX * player.rect.Width * 2;
+        startPlayerPos = player.pos;
 
         questionMonsters.Add(vocab);
         vocab.defense = 2;
@@ -2898,6 +3207,22 @@ public class HuntingGame : View
             });
         }
 
+        await Coroutine.WaitAny(
+                eventManager.WaitEvent<ChooseState>(ctrl),
+                ctrl.While(() => killed == null)
+        );
+
+        message = "Hunt monster with correct answer";
+        chooseState = ChooseState.HuntMonster;
+        foreach (var e in items)
+        {
+            e.entity.dir = Vector2.Normalize(e.entity.dir) * 10;
+        }
+        foreach (var c in choices)
+        {
+            c.hidden = false;
+        }
+
         foreach (var m in choices)
         {
             m.exploring.maxSpeed = 0.5f;
@@ -2906,53 +3231,12 @@ public class HuntingGame : View
             m.logicState = m.exploring;
         }
 
-        // TODO: disable damage on choose answer 
-
-        // TODO: 1-2 minute time limit per card
-        //       answer with good regardless if card was cleared or not
-
-        // TODO: add some walking monsters on start screen
-
-        // TODO: in-game menu
-
-        // TODO: example boss
-        //       shoots stuffs
-        //       other monsters walks outside of grid
-        //       focus camera on big guy and play text
-        //       pick up sword with the matching text
-
-        // TODO: random dungeon generation
-        //   canvas layers (floor, walls, entities, interface)
-
-        // TODO: general codebase clean up
-
-        // TODO: clean up interface, create release build
-        //       move game outside script file
-
-        // TODO: start actual day-to-day testing
-
-        // TODO: turn-based mode: monster only move when the player moves
-        // TODO: skirmish
-
-        // TODO: refactoring
-        //       decouple events 
-
-        // TODO: visual improvements
-        //       shaders, particles, camera movements
-        //       - particles.Add(tileIDs)
-        //       - litters.Add(bloodIDs)
-
-
-
-
-        // TODO: in-game zoom in/out
-        // set camera on question
-        // pan to player 
-        // await camera.panTo()
-        // await camera.zoomIn()
-        // await camera.zoomOut()
 
         await ctrl.While(() => killed == null);
+        itemGroup.Clear();
+
+        eventManager.RemoveOnMonsterHit(onHit);
+        eventManager.RemoveOnMonsterKill(onKill);
 
         var correct = killed.text == playing.card.GetField("VocabDef");
         if (correct)
@@ -3098,20 +3382,17 @@ public class HuntingGame : View
 
     public async Coroutine StartHuntScript(CoroutineControl ctrl)
     {
-
         ClearSubTargets();
         monsterGroup.Clear();
         monsterGroup.SpawnFromCards(cards);
+
         components.AddDraw(DrawInterface);
+        eventManager.AddOnPlayerHit(OnDefaultPlayerHit);
+        eventManager.AddOnMonsterKill(IncrementMonsterKillCount);
 
         var text = playing.card.GetVocab() ?? "";
         foreach (var m in monsterGroup.Iterate())
         {
-            //if (m.card.HasExample())
-            //{
-            //	playing.target = m;
-            //	playing.card = m.card;
-            //}
             if (m.card == playing.card)
             {
                 playing.target = m;
@@ -3215,12 +3496,12 @@ public class HuntingGame : View
             m.pos = pos;
         }
 
-        monsterGroup.RegisterOnHit(OnTargetHit);
-        monsterGroup.OnHit -= OnDefaultMonsterHit;
+        eventManager.AddOnMonsterHit(OnSubTargetHit);
+        eventManager.RemoveOnMonsterHit(OnDefaultMonsterHit);
         using var _ = Defer.Run(() =>
         {
-            monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
-            monsterGroup.OnHit -= OnTargetHit;
+            eventManager.RemoveOnMonsterHit(OnSubTargetHit);
+            eventManager.AddOnMonsterHit(OnDefaultMonsterHit);
         });
 
         while (true)
@@ -3271,12 +3552,12 @@ public class HuntingGame : View
         AddSubTargetsBy(playing.target, "SentKanji");
         playing.textProgress.SetText(playing.card.GetExample() ?? "");
 
-        monsterGroup.RegisterOnHit(OnTargetHit);
-        monsterGroup.OnHit -= OnDefaultMonsterHit;
+        eventManager.AddOnMonsterHit(OnSubTargetHit);
+        eventManager.RemoveOnMonsterHit(OnDefaultMonsterHit);
         using var _ = Defer.Run(() =>
         {
-            monsterGroup.RegisterOnHit(OnDefaultMonsterHit);
-            monsterGroup.OnHit -= OnTargetHit;
+            eventManager.AddOnMonsterHit(OnDefaultMonsterHit);
+            eventManager.RemoveOnMonsterHit(OnSubTargetHit);
         });
 
         while (playing.subIndex < playing.subTargets.Count())
@@ -3284,9 +3565,6 @@ public class HuntingGame : View
             var hunted = await GetHuntedKill(ctrl);
             playing.textProgress.NextTextItem();
             playing.NextTarget();
-
-            //playing.subTargets.Clear();
-            //AddExampleMonster(playing.target);
         }
     }
 
@@ -3429,35 +3707,35 @@ public class HuntingGame : View
     }
 
     /*
-		public Monster[] SplitMonsterByExample(Monster m)
-		{
-			//var text = m.card?.GetField("SentKanji") ?? m.text;
-			if (!m.card.HasExample())
-			{
-				Console.WriteLine("no SentKanji");
-				return new Monster[0];
-			}
+        public Monster[] SplitMonsterByExample(Monster m)
+        {
+            //var text = m.card?.GetField("SentKanji") ?? m.text;
+            if (!m.card.HasExample())
+            {
+                Console.WriteLine("no SentKanji");
+                return new Monster[0];
+            }
 
-			var text = m.card?.GetField("SentKanji") ?? m.text;
-			var subMonsters = new List<Monster>();
-			var font = SharedState.self.fontAsian;
-			var audioFilename = m.card?.GetField("SentAudio") ?? m.text;
-			foreach (var ch in text)
-			{
-				if (char.IsWhiteSpace(ch))
-				{
-					continue;
-				}
-				var newMonster = new Monster(m.entity.tileID, ch.ToString(), font);
-				newMonster.pos = m.pos;
-				newMonster.target = m.target;
-				newMonster.card = m.card;
-				newMonster.audioFilename = audioFilename;
-				subMonsters.Add(newMonster);
-			}
-			return subMonsters.ToArray();
-		}
-	*/
+            var text = m.card?.GetField("SentKanji") ?? m.text;
+            var subMonsters = new List<Monster>();
+            var font = SharedState.self.fontAsian;
+            var audioFilename = m.card?.GetField("SentAudio") ?? m.text;
+            foreach (var ch in text)
+            {
+                if (char.IsWhiteSpace(ch))
+                {
+                    continue;
+                }
+                var newMonster = new Monster(m.entity.tileID, ch.ToString(), font);
+                newMonster.pos = m.pos;
+                newMonster.target = m.target;
+                newMonster.card = m.card;
+                newMonster.audioFilename = audioFilename;
+                subMonsters.Add(newMonster);
+            }
+            return subMonsters.ToArray();
+        }
+    */
 
     public void Draw()
     {
@@ -3517,17 +3795,17 @@ public class HuntingGame : View
 
         {
             /*
-			var i = 0;
-			var coloredText = new List<ColoredString>();
-			foreach (var mon in playing.subTargets)
-			{
-				var c = i < playing.subIndex ? Color.White
-					: i == playing.subIndex ? Color.PaleGreen
-					: Color.Gray;
-				i++;
-				coloredText.Add(new ColoredString(mon.text, c));
-			}
-			*/
+            var i = 0;
+            var coloredText = new List<ColoredString>();
+            foreach (var mon in playing.subTargets)
+            {
+                var c = i < playing.subIndex ? Color.White
+                    : i == playing.subIndex ? Color.PaleGreen
+                    : Color.Gray;
+                i++;
+                coloredText.Add(new ColoredString(mon.text, c));
+            }
+            */
 
             if ((playing?.target?.text?.Count() ?? 0) > 0)
             {
@@ -3577,7 +3855,7 @@ public class HuntingGame : View
         clear.gpr.Print("id={0}", card.cardId);
 
         clear.gpr.font = SharedState.self.fontRegular;
-        clear.gpr.Print("Elapsed: {0} seconds", MathF.Floor(elapsed));
+        clear.gpr.Print("Elapsed: {0} seconds", MathF.Floor(playTime));
         clear.gpr.font = SharedState.self.fontAsian;
         clear.gpr.Printf($"{card.GetField("VocabFurigana")} / {card.GetField("VocabDef")}", maxWidth, AlignMode.Left);
 
@@ -3634,13 +3912,25 @@ public class HuntingGame : View
         }
     }
 
-    public void OnMonsterKill(Monster m)
+    public void OnDefaultPlayerHit(Player player, Monster m)
+    {
+        player.Hit(player.entity.scale / m.entity.scale);
+    }
+
+    public void OnDefaultMonsterKill(Monster m, Player attacker)
     {
         Console.WriteLine("default monster kill");
         //DropLoots(m.pos);
     }
+    public void IncrementMonsterKillCount(Monster m, Player attacker)
+    {
+        if (gameState == State.Playing)
+        {
+            playing.kills++;
+        }
+    }
 
-    public void OnTargetHit(Monster m)
+    public void OnSubTargetHit(Monster m, Player attacker)
     {
         var canAttack = true;
         var isTarget = false;
@@ -3665,7 +3955,7 @@ public class HuntingGame : View
         UpdateMana(manaGain);
     }
 
-    public void OnDefaultMonsterHit(Monster m)
+    public void OnDefaultMonsterHit(Monster m, Player attacker)
     {
         var targetMonster = playing.subIndex >= 0 && playing.subIndex < playing.subTargets.Count()
         ? playing.subTargets[playing.subIndex] : null;
@@ -3715,12 +4005,12 @@ public class HuntingGame : View
         }
     }
 
-    public void OnItemPickup(IEntity item)
+    public void OnDefaultItemPickup(IEntity item, Player pickuper)
     {
         if (item is Consumable food)
         {
             itemGroup.Remove(item);
-            player.AddHealth(food.healthGain);
+            pickuper.AddHealth(food.healthGain);
         }
     }
 
@@ -3780,17 +4070,16 @@ public class HuntingGame : View
         if (player.health <= 0)
         {
             gameState = State.Gameover;
+
         }
-        else
+        foreach (var item in itemGroup.GetItemsAt(player.rect))
         {
-            foreach (var item in itemGroup.GetItemsAt(player.rect))
+            if (item.rect.IntersectsWith(player.rect))
             {
-                if (item.rect.IntersectsWith(player.rect))
-                {
-                    OnItemPickup(item);
-                }
+                eventManager.EmitItemPickup(item, player);
             }
         }
+
         itemGroup.Update();
     }
 
@@ -3806,7 +4095,18 @@ public class HuntingGame : View
             var hit = sword.HasHit(m);
             if (hit && sword.enabled && m.IsAlive())
             {
-                m.Hit(sword.pos);
+
+                if (m.CanHit())
+                {
+                    eventManager.EmitMonsterHit(m, player);
+                }
+
+
+                if (!m.IsAlive())
+                {
+                    eventManager.EmitMonsterKill(m, player);
+                }
+
             }
         }
 
@@ -3814,14 +4114,12 @@ public class HuntingGame : View
         {
             if (player.entity.CollidesWith(m.entity) && m.CanDamage())
             {
-                player.Hit(player.entity.scale / m.entity.scale);
+                //player.Hit(player.entity.scale / m.entity.scale);
+                eventManager.EmitPlayerHit(player, m);
             }
         }
-
-
-        //UpdateTargets();
-
     }
+
     public void UpdateMonsters()
     {
         monsterGroup.Update();
@@ -3840,7 +4138,7 @@ public class HuntingGame : View
     {
         if (gameState == State.Playing)
         {
-            elapsed += Love.Timer.GetDelta();
+            playTime += Love.Timer.GetDelta();
         }
 
         cam.Update();
@@ -4102,8 +4400,93 @@ public class TextProgress
 
 }
 
+public class TextTimer : IComponent
+{
+    event Action OnTimeUp = () => { };
+    public TextEntity text;
+    float startSeconds;
+    float endSeconds;
+    float step = 0;
+    float elapsed = 0;
+    bool running = false;
+    public TextTimer()
+    {
+        text = new("00:00", SharedState.self.fontSmall);
+    }
 
-public partial class TextEntity
+    public void StartCountDown(float numSeconds)
+    {
+        elapsed = 0;
+        endSeconds = 0;
+        startSeconds = numSeconds;
+        step = Math.Sign(endSeconds - startSeconds);
+        running = true;
+        UpdateText();
+    }
+
+    private void UpdateText()
+    {
+        var span = TimeSpan.FromSeconds(Math.Abs(endSeconds - startSeconds));
+        text.SetText($"{span.Minutes.ToString("D2")}:{span.Seconds.ToString("D2")}");
+    }
+
+    public void Update()
+    {
+        if (!running)
+        {
+            return;
+        }
+
+        elapsed += Love.Timer.GetDelta();
+        if (elapsed >= 1)
+        {
+            elapsed = 0;
+            startSeconds += step;
+
+            if ((step > 0 && startSeconds >= endSeconds) ||
+                (step < 0 && startSeconds <= endSeconds) ||
+                 step == 0)
+            {
+                running = false;
+                OnTimeUp();
+            }
+
+            UpdateText();
+        }
+    }
+
+    public void Draw()
+    {
+        text.Draw();
+    }
+
+    public async Coroutine WaitTimeUp(CoroutineControl ctrl)
+    {
+        var done = false;
+        var fn = () => { done = true; };
+
+        OnTimeUp += fn;
+        using (Defer.Run(() => OnTimeUp -= fn))
+        {
+            while (!done) await ctrl.Yield();
+        }
+
+    }
+
+    public void RemoveOnTimeUp(Action fn) => OnTimeUp -= fn;
+    public void AddOnTimeUp(Action fn)
+    {
+        OnTimeUp -= fn;
+        OnTimeUp += fn;
+    }
+
+    public bool IsDone()
+    {
+        return !running;
+    }
+}
+
+public class TextEntity
 {
 
     public RectangleF rect = new RectangleF();
@@ -4199,7 +4582,7 @@ public partial class TextEntity
         float fontHeight = font.GetHeight();
         textHeight = numLines * (fontHeight * font.GetLineHeight());
 
-        text = string.Join('\n', lines);
+        this.text = string.Join('\n', lines);
 
     }
 
@@ -4232,14 +4615,14 @@ public partial class TextEntity
             p.Y -= rect.Height / 2;
         }
 
-        pos = p;
+        //pos = p;
         rect.Location = p;
     }
 
     public void SetColor(Color color, int startIndex = 0, int? endIndexOpt = null)
     {
-        int endIndex = endIndexOpt.GetValueOrDefault(text.Length - 1);
-        for (var i = startIndex; i <= Math.Min(endIndex, text.Length - 1); i++)
+        int endIndex = endIndexOpt.GetValueOrDefault(coloredText.Count() - 1);
+        for (var i = startIndex; i <= Math.Min(endIndex, coloredText.Count() - 1); i++)
         {
             var c = coloredText[i];
             coloredText[i] = new ColoredString(c.text, color);
@@ -4304,7 +4687,7 @@ public partial class TextEntity
         Graphics.Rectangle(DrawMode.Line, rect.X, rect.Y, rect.Width, rect.Height);
 
         Graphics.Push();
-        Graphics.Translate(pos.X, pos.Y);
+        Graphics.Translate(rect.X, rect.Y);
         Graphics.Scale(scale);
 
         Graphics.SetFont(font);
@@ -4540,15 +4923,6 @@ public class SimpleMenu : View, IDisposable
         Callbacks.RemoveUpdate(Update);
     }
 
-    // TODO:
-    // Align { left, right, center}
-    // PrintCenter(rect, str)
-    // PrintLeft(rect, str)
-    // PrintRight(rect, str)
-    // Print(align, rect, str)
-    // Draw(align, rect, textObj)
-    // or use a RectangleExtension
-
     public void Draw()
     {
         foreach (var item in items)
@@ -4592,6 +4966,7 @@ public class StartScreen : View
 
     CardLoader cardLoader;
     CardPreview testPreview = new CardPreview("北海道", new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2));
+    public bool autoStart;
 
     public StartScreen(SharedState state, CardLoader cardLoader)
     {
@@ -4639,7 +5014,6 @@ public class StartScreen : View
             var columns = (0..(cards.Count() - 1)).ToArray();
             var columnIndex = 0;
             columns.Shuffle();
-            PrintVar($"num colums={numColumns}, itemWidth={itemWidth}");
 
             foreach (var card in cards)
             {
@@ -4664,23 +5038,44 @@ public class StartScreen : View
 
     public async Task LoadCards()
     {
-        var savedStateTask = cardLoader.RestoreSavedState();
-        var decksTask = cardLoader.LoadDecks();
-
-        await Task.WhenAll(savedStateTask, decksTask);
-        selectedDeck = (await savedStateTask)?.lastDeckName ?? "";
-        var decks = await decksTask;
-
-        if (selectedDeck is null && decks.Count() > 0)
+        var retries = 0;
+        while (true)
         {
-            selectedDeck = decks.Keys.FirstOrDefault("");
+            try
+            {
+                selectedDeck = await Run(cardLoader) ?? "";
+                break;
+            }
+            catch (System.IO.IOException)
+            {
+                if (retries++ > 10)
+                {
+                    throw;
+                }
+                await Task.Delay(retries * 250);
+            }
         }
-
-        if (!string.IsNullOrEmpty(selectedDeck))
+        static async Task<string?> Run(CardLoader cardLoader)
         {
-            await cardLoader.LoadCards(selectedDeck);
+
+            var savedStateTask = cardLoader.RestoreSavedState();
+            var decksTask = cardLoader.LoadDecks();
+
+            await Task.WhenAll(savedStateTask, decksTask);
+            var selectedDeck = (await savedStateTask)?.lastDeckName ?? "";
+            var decks = await decksTask;
+
+            if (selectedDeck is null && decks.Count() > 0)
+            {
+                selectedDeck = decks.Keys.FirstOrDefault("");
+            }
+
+            if (!string.IsNullOrEmpty(selectedDeck))
+            {
+                await cardLoader.LoadCards(selectedDeck);
+            }
+            return selectedDeck;
         }
-        PrintVar("selectedDeck", selectedDeck);
     }
 
     public void Load()
@@ -4690,10 +5085,13 @@ public class StartScreen : View
             loadingIcon.Enable = true;
             await ctrl.AwaitTask(LoadCards());
             Console.WriteLine("done loading {0}", selectedDeck);
-            await ctrl.DelayCount(100);
-            PrintVar("c");
-            PrintVar(cardLoader.DueCards.Count());
+            await ctrl.DelayCount(10);
             loadingIcon.Enable = false;
+
+            if (autoStart)
+            {
+                OnStart();
+            }
         });
     }
 
@@ -4957,7 +5355,6 @@ public class CardLoader
 
             NewCards = newCards.ToList();
             DueCards = dueCards.ToList();
-            //PrintVar("load card task", dueCards.Count());
 
             return dueCards.Union(newCards);
         });
