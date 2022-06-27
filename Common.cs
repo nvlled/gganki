@@ -681,8 +681,8 @@ public class AudioManager
 
 public interface IComponent
 {
-    void Draw(Entity entity);
-    void Update(Entity entity);
+    void Draw();
+    void Update();
 }
 
 public class Component : IComponent
@@ -690,22 +690,22 @@ public class Component : IComponent
     public bool EnableDraw { get; set; } = true;
     public bool EnableUpdate { get; set; } = true;
 
-    public Action<Entity>? DrawComponent { get; set; }
-    public Action<Entity>? UpdateComponent { get; set; }
+    public Action? DrawComponent { get; set; }
+    public Action? UpdateComponent { get; set; }
 
-    public void Draw(Entity entity)
+    public void Draw()
     {
         if (EnableDraw && DrawComponent != null)
         {
-            DrawComponent(entity);
+            DrawComponent();
         }
     }
 
-    public void Update(Entity entity)
+    public void Update()
     {
         if (EnableUpdate && UpdateComponent != null)
         {
-            UpdateComponent(entity);
+            UpdateComponent();
         }
     }
 }
@@ -718,7 +718,7 @@ public class ComponentView : IComponent
     public Action? DrawComponent { get; set; }
     public Action? UpdateComponent { get; set; }
 
-    public void Draw(Entity entity)
+    public void Draw()
     {
         if (EnableDraw && DrawComponent != null)
         {
@@ -726,7 +726,7 @@ public class ComponentView : IComponent
         }
     }
 
-    public void Update(Entity entity)
+    public void Update()
     {
         if (EnableUpdate && UpdateComponent != null)
         {
@@ -844,7 +844,7 @@ public class ComponentRegistry
     {
         foreach (var c in components)
         {
-            c.Draw(windowEntity);
+            c.Draw();
         }
         foreach (var fn in drawFunctions)
         {
@@ -856,7 +856,7 @@ public class ComponentRegistry
     {
         foreach (var c in components)
         {
-            c.Update(windowEntity);
+            c.Update();
         }
         foreach (var fn in updateFunctions)
         {
@@ -949,13 +949,15 @@ public class Entity
 
         foreach (var c in components)
         {
-            c.Update(this);
+            c.Update();
         }
     }
 
-    public void FaceDirectionX(Vector2 dir)
+    public bool FaceDirectionX(Vector2 dir)
     {
+        var prevFlipX = flipX;
         flipX = Vector2.Dot(dir, Directions.Right) > 0 ? -1 : 1;
+        return flipX != prevFlipX;
     }
 
 
@@ -970,7 +972,7 @@ public class Entity
 
         foreach (var c in components)
         {
-            c.Draw(this);
+            c.Draw();
         }
     }
 
@@ -1323,6 +1325,14 @@ public class Defer
 public class RandomContainer
 {
     public static Random Rand = Random.Shared;
+}
+
+public class VectorUtils
+{
+    public static Vector2 Norm(Vector2 v)
+    {
+        return Vector2.Normalize(v);
+    }
 }
 
 public class DebugUtils
