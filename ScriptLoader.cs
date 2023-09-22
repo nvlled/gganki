@@ -1,7 +1,5 @@
 using System.Text.Json;
 using Love;
-using CSScriptLib;
-using CSScripting;
 
 namespace gganki_love;
 
@@ -50,11 +48,10 @@ public class ScriptLoader
             }
 
             //CSScriptLib.CSScript.Evaluator.LoadFile
-            var newScript = CSScript.Evaluator.LoadFile<View>(filename, state);
             lastLoad = Love.Timer.GetTime();
             loadError = "";
 
-            script = newScript;
+            script = new Script(state);
             script.Load();
         }
         catch (Exception err)
@@ -92,13 +89,11 @@ public class ScriptLoader
             return;
         }
 
-        CSScript.EvaluatorConfig.Engine = EvaluatorEngine.Roslyn;
-        CSScript.Evaluator.With(eval => eval.IsCachingEnabled = true);
 
 
         var title = Window.GetTitle();
         Window.SetTitle("loading script");
-        script = CSScript.Evaluator.LoadFile<View>(filename, state);
+        script = new Script(state);
         script.Load();
         lastLoad = Love.Timer.GetTime();
         Window.SetTitle(title);
