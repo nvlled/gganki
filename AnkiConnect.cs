@@ -178,7 +178,8 @@ public record class CardInfo
 
     public bool IsDue()
     {
-        var dueTime = DateTimeOffset.FromUnixTimeSeconds(due);
+        var ivl = interval >= -1200 ? interval : 0;
+        var dueTime = DateTimeOffset.FromUnixTimeSeconds(due - ivl);
         return DateTimeOffset.UtcNow >= dueTime;
     }
 }
@@ -393,7 +394,10 @@ public class AnkiConnect
             return AnkiConnectResponse<CardInfo[]>.Error(idResp.error);
         }
         var ids = idResp.value ?? new ulong[0];
-        ids = ids[0..limit];
+        if (ids.Length >= limit)
+        {
+            ids = ids[0..limit];
+        }
 
         var cardResp = await AnkiConnect.FetchCardInfo(ids);
         return cardResp;
@@ -458,6 +462,44 @@ public class AnkiConnect
         var data = JsonSerializer.Deserialize<AnkiConnectResponse<bool[]>>(json);
 
         return WrapNullError(data);
+    }
+    public static async Task<AnkiConnectResponse<int>> CountLearnedNewCardsToday(string deckName)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var today = (now / 86400) * 86400;
+
+        var reqBody = new AnkiConnectRequest("cardReviews", new
+        {
+            deck = deckName,
+            startID = today * 1000,
+        });
+        var resp = await Post(reqBody);
+        var json = await resp.Content.ReadAsStringAsync();
+        var data = JsonSerializer.Deserialize<AnkiConnectResponse<long[][]>>(json);
+
+        //id, cid, usn, ease, ivl, lastIvl, factor, time, type
+        // 0   1   2    3     4     5        6        7   8
+
+        if (data?.value is null)
+        {
+            return AnkiConnectResponse<int>.Ok(0);
+        }
+
+        var count = 0;
+        foreach (var row in data.value)
+        {
+            var typeIndex = 8;
+            if (row.Length >= typeIndex)
+            {
+                var type = row[typeIndex];
+                if (type == 0) // type 0 -> new card
+                {
+                    count++;
+                }
+            }
+        }
+
+        return AnkiConnectResponse<int>.Ok(count);
     }
 
     public static async Task<AnkiConnectResponse<string>> GetMedia(string ankiFile)

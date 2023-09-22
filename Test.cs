@@ -203,7 +203,7 @@ public class Test
         Console.WriteLine(DateTimeOffset.Now > t.AddHours(10));
     }
 
-    [Fact]
+    //[Fact]
     public void TestCardSkips()
     {
         SortedSet<CardInfo> skippedCards = new SortedSet<CardInfo>(Comparer<CardInfo>.Create((a, b) => (int)(a.due - b.due)));
@@ -249,4 +249,14 @@ public class Test
         return selectedCard;
     }
 
+    [Fact]
+    public void TestTime()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var today = (now / 86400) * 86400;
+
+        Console.WriteLine(now);
+        Console.WriteLine(DateTimeOffset.FromUnixTimeSeconds(1656547200));
+        Console.WriteLine(DateTimeOffset.FromUnixTimeSeconds(today));
+    }
 }

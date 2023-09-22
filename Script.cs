@@ -39,7 +39,7 @@ public class Script : View
 
         game = new HuntingGame(state, cardLoader);
         startScreen = new StartScreen(state, cardLoader);
-        startScreen.autoStart = true;
+        startScreen.autoStart = false;
         startScreen.OnStart += async () =>
         {
             game.Load();
@@ -53,6 +53,7 @@ public class Script : View
     public async Task LoadCards()
     {
         var selectedDeck = (await cardLoader.RestoreSavedState()).lastDeckName;
+        var countTask = selectedDeck == null ? Task.FromResult(0) : cardLoader.CountLearnedNewCardsToday(selectedDeck);
         state.lastDeckName = selectedDeck;
 
         var deckTask = cardLoader.LoadDecks();
@@ -62,11 +63,30 @@ public class Script : View
             cardTask = cardLoader.LoadCards(selectedDeck);
         }
 
-        await (cardTask == null ? deckTask : Task.WhenAll(deckTask, cardTask));
-        state.deckNames = deckTask.Result;
-        if (selectedDeck != null && cardTask != null)
+        try
         {
-            state.deckCards[selectedDeck] = cardTask.Result.ToArray();
+            await (cardTask == null ? Task.WhenAll(deckTask, countTask) : Task.WhenAll(deckTask, countTask, cardTask));
+
+            state.deckNames = deckTask.Result;
+            if (selectedDeck != null && cardTask != null)
+            {
+
+                //state.deckCards[selectedDeck] = cardLoader.DueCards.ToArray();
+                var count = Config.newCardsPerDay - cardLoader.LearnedNewCards;
+                var newCards = count < 0 ? new CardInfo[0] : cardLoader.NewCards.ToArray()[0..count];
+                PrintVar("new cards in deck {0}", newCards.Count());
+
+                var allCards = new List<CardInfo>();
+                allCards.AddRange(cardLoader.DueCards);
+                allCards.AddRange(newCards);
+
+                state.deckCards[selectedDeck] = allCards.ToArray();
+            }
+        }
+        catch (Exception e)
+        {
+            PrintVar(e.Message);
+            Console.WriteLine(e.StackTrace);
         }
     }
 
@@ -1273,6 +1293,7 @@ public class MonsterGroup
     {
         foreach (var m in monsters.Iterate()) m.Dispose();
         monsters.Dispose();
+        monsters.Clear();
     }
 
     public void Remove(Monster m)
@@ -2718,7 +2739,19 @@ public class HuntingGame : View
         playing.card = card;
     }
 
-    SortedSet<CardInfo> skippedCards = new SortedSet<CardInfo>(Comparer<CardInfo>.Create((a, b) => (int)(a.due - b.due)));
+    SortedSet<CardInfo> skippedCards = new SortedSet<CardInfo>(Comparer<CardInfo>.Create((a, b) =>
+    {
+        // put new cards at the end
+        if (a.type == 0)
+        {
+            return 1;
+        }
+        if (b.type == 0)
+        {
+            return 0;
+        }
+        return (int)(a.due - b.due);
+    }));
     public CardInfo? GetSkippedDueCard(SortedSet<CardInfo> set)
     {
         CardInfo? selectedCard = null;
@@ -2779,6 +2812,7 @@ public class HuntingGame : View
         // TODO: player.reset()
         player.entity.pos = world.Center;
         player.health = 100;
+        playing.maxHunts = 0;
         cam.CenterAt(player.pos);
 
 
@@ -2798,6 +2832,7 @@ public class HuntingGame : View
             if (!cards.Contains(playing.card))
             {
                 cards.Add(playing.card);
+                cards.RemoveAt(0);
             }
             AnkiAudioPlayer.LoadCardAudios(cards);
         }
@@ -2830,11 +2865,33 @@ public class HuntingGame : View
 
         using var _1 = components.AddUpdate(UpdateGameover);
         using var _2 = components.AddDraw(DrawGameover);
-        components.RemoveUpdate(UpdatePlayerAction);
-        components.RemoveUpdate(UpdateMonsterCollision);
 
         await input.PressAny(ctrl, ActionType.ButtonA, ActionType.ButtonB);
         //await ctrl.AwaitAnyKey();
+    }
+    public async Coroutine UpdateCardDetails(CoroutineControl ctrl, bool correctAnswer)
+    {
+        await Coroutine.AwaitTask(
+            AnkiConnect.AnswerCard(playing.card.cardId, correctAnswer ? AnkiButton.Good : AnkiButton.Again)
+        );
+
+        var resp = (await Coroutine.AwaitTask(AnkiConnect.FetchCardInfo(playing.card.cardId))).Unwrap();
+        if (resp.Length > 0)
+        {
+            var card = resp[0];
+            playing.card.due = card.due;
+            playing.card.interval = card.interval;
+            playing.card.queue = card.queue;
+            playing.card.reps = card.reps;
+            playing.card.factor = card.factor;
+            playing.card.mod = card.mod;
+        }
+        if (!correctAnswer)
+        {
+            skippedCards.Remove(playing.card);
+            skippedCards.Add(playing.card);
+        }
+
     }
 
     public async Coroutine StartGameScript(CoroutineControl ctrl)
@@ -2870,26 +2927,37 @@ public class HuntingGame : View
                 {
                     startHunt = false;
                     gameState = State.Clear;
-                    _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Good);
                 }
-                else
-                {
-                    _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Again);
-                }
+
+                scripter.StartBackground(async ctrl => await UpdateCardDetails(ctrl, correct));
             }
 
 
             if (startHunt)
             {
-                if (!tryAgain)
+                if (tryAgain && textTimer.IsDone())
                 {
-                    textTimer.StartCountDown(90);
+                    textTimer.StartCountDown(15);
+                }
+                else if (!tryAgain)
+                {
+                    textTimer.StartCountDown(75);
                 }
 
 
                 var subCtrl = new CoroutineControl();
                 var gameScript = StartHuntScript(subCtrl);
-                await subCtrl.While(() => gameState == State.Playing);
+
+                //await subCtrl.While(() => gameState == State.Playing);
+                while (gameState == State.Playing)
+                {
+                    await subCtrl.Yield();
+                    if (textTimer.IsDone())
+                    {
+                        break;
+                    }
+                }
+
                 try
                 {
                     Console.WriteLine("cancelling");
@@ -2905,24 +2973,26 @@ public class HuntingGame : View
                     _ = AnkiConnect.AnswerCard(playing.card.cardId, AnkiButton.Good);
                 }
 
-                if (textTimer.IsDone() && playing.kills > 2)
-                {
-                    gameState = State.Clear;
-                }
+                //if (textTimer.IsDone() && playing.kills > 2)
+                //{
+                //    gameState = State.Clear;
+                //}
             }
 
+            components.RemoveUpdate(UpdatePlayerAction);
+            components.RemoveUpdate(UpdateMonsterCollision);
 
-            if (gameState == State.Clear)
-            {
-                tryAgain = false;
-                components.AddDraw(DrawClear);
-                //await ctrl.AwaitAnyKey();
-                await input.PressAny(ctrl, ActionType.ButtonA, ActionType.ButtonB);
-            }
-            else if (gameState == State.Gameover)
+            if (gameState == State.Gameover)
             {
                 await GameoverScript(ctrl);
                 tryAgain = true;
+            }
+            else
+            {
+                tryAgain = false;
+                components.AddDraw(DrawClear);
+                await input.PressAny(ctrl, ActionType.ButtonA, ActionType.ButtonB);
+
             }
         }
     }
@@ -2957,8 +3027,7 @@ public class HuntingGame : View
         Monster? killed = null;
         HashSet<Monster> questionMonsters = new HashSet<Monster>();
         var items = new List<Consumable>();
-        var startPlayerPos = Vector2.Zero;
-        var hasMoved = false;
+        var prevPos = player.pos;
         var chooseState = ChooseState.FindItems;
         var numLetters = 0;
         var card = playing.card;
@@ -2986,6 +3055,7 @@ public class HuntingGame : View
 
         var update = () =>
         {
+            prevPos = player.pos;
             foreach (var e in items)
             {
                 e.pos += e.entity.dir;
@@ -3009,10 +3079,7 @@ public class HuntingGame : View
                 }
             }
 
-            if (!hasMoved && startPlayerPos != player.pos)
-            {
-                hasMoved = true;
-            }
+
         };
 
         var draw = () =>
@@ -3029,6 +3096,7 @@ public class HuntingGame : View
         };
         EventManager.ItemPickupFn onItemPickup = (IEntity item, Player player) =>
         {
+            var hasMoved = player.pos != prevPos;
             if (!(item is Consumable food) || !hasMoved)
             {
                 return;
@@ -3100,7 +3168,7 @@ public class HuntingGame : View
                 }
                 var item = itemGroup.SpawnAt(vocab.pos + Vector2.UnitY * 20);
                 item.text = ch.ToString();
-                item.font = state.fontMedium;
+                item.font = state.fontRegular;
                 item.entity.dir = Xt.Vector2.RandomDir() * Random.Shared.Next(2, 3);
                 items.Add(item);
             }
@@ -3109,12 +3177,72 @@ public class HuntingGame : View
         numLetters = numVocab * vocabParts.Length;
         message = $"Find matching letters ({numLetters})";
 
-        // TODO: on choose answer stage, pick pieces of text
-        // TODO: prevent attacking when clickng to next card
-        // TODO: 
-        //       - less monsters at start
-        //       - spawn more monsters per countdown
-        //       - spawn targets along other monsters
+        // TODO: show cards learned/reviewed while playing
+        // TODO: show message when there is no card available
+
+        // TODO: use ebisu spacing algorithm
+        // so yeah, I'm dropping anki dependency in the end
+        // or at least, for the AJT kanji transition deck
+        // it'll make the game easier to package and 
+        // let other people try it out
+        // ebisu algo does seem simpler compared to
+        // to supermemo derived algos,
+        // and would probably work better for my use case
+        // but
+        // I've already spent a little too long
+        // on this project
+        // my interest in continuing has admittedly died bit
+        // It wasn't entirely a useless endeavor,
+        // I learned lots of things,
+        // particularly the do's and don'ts when making a game.
+        // At least for the next game project,
+        // I would have better idea how to structure larger games.
+        // I should probably write them down sooner.
+        // On the positive side, I guess I did somehow manage
+        // to achieve my goal. That is, a more efficient
+        // means of learning from flashcards.
+        // The cards I had difficulty learning before,
+        // now learn them easier or faster. And I learn
+        // the difficult cards easier as well.
+        // So yeah, at least the concept has potential.
+        // Anyway, for now, I will freeze the project
+        // from any feature/visual changes, and ocassionally
+        // do some tiny bug fixes and some minor tweaking
+        // on the game parameters.
+        // It's good enough for now.
+        // While in testing phase, I'm going to
+        // do other projects now. Hooray!??11
+        // Yeah, working on one project for a long time
+        // isn't very fun.
+        // I'm considering what to do next,
+        // but more importantly, I should start finding
+        // work. The stress of running out of money
+        // is starting to take a toll on me.
+        // Unfortunately, I still need to make
+        // some new one or two tiny projects
+        // when applying.
+        // So the plan then would be to create
+        // simple projects in different tech stacks.
+        // I'm thinking of using tauri, monogame,
+        // and ebiten.
+        // By simple, I mean something that can be done 
+        // in a day or two, and does one thing well.
+        // Also, I was considering of creating a
+        // lua-based static site generator,
+        // but I should focus on making
+        // a more presentable personal site/resume instead. 
+        // I'd be a lot more chill if my mother wasn't
+        // occasionally gaslighting me and asking
+        // me where's the money.
+        // But yeah, fuck it, how is it my sole
+        // responsibility. I have 5 more other siblings
+        // to share my burden.
+        // At worst case, I end up going outside
+        // and start looking for local work,
+        // and that doesn't seem so bad.
+
+
+        // TODO: add time elapsed when submitting answer to anki
 
         // TODO: add some walking monsters on start screen
 
@@ -3188,7 +3316,7 @@ public class HuntingGame : View
         // await camera.zoomOut()
 
         player.pos = vocab.pos - Vector2.UnitX * player.rect.Width * 2;
-        startPlayerPos = player.pos;
+        prevPos = player.pos;
 
         questionMonsters.Add(vocab);
         vocab.defense = 2;
@@ -3253,10 +3381,9 @@ public class HuntingGame : View
 
 
         await ctrl.AwaitTask(AnkiAudioPlayer.PlayWait(card.GetField("VocabAudio")));
-        await ctrl.Sleep(1);
+        await ctrl.Sleep(0.3f);
         await ctrl.AwaitTask(AnkiAudioPlayer.PlayWait(card.GetField("SentAudio")));
-
-        await ctrl.Sleep(1);
+        await ctrl.Sleep(0.1f);
 
         return correct;
     }
@@ -3279,7 +3406,7 @@ public class HuntingGame : View
         var correct = monsterGroup.SpawnMonster(card.GetVocabDef() ?? "*");
         correct.audioFilename = card.GetField("VocabAudio");
         choices.Add(correct);
-        choices.Sort((a, b) => Random.Shared.Next(-1, 2));
+        choices.Shuffle();
 
         var angleStep = (360 / choices.Count()) * MathF.PI / 180;
         var d = player.entity.rect.DiagonalLength() * 2.5f;
@@ -3291,6 +3418,7 @@ public class HuntingGame : View
             m.target = null;
             polar.angle += angleStep;
         }
+
 
         return choices;
     }
@@ -3304,7 +3432,7 @@ public class HuntingGame : View
 
         var monVocab = monsterGroup.SpawnMonster(vocab);
         monVocab.audioFilename = card.GetField("VocabAudio");
-        monVocab.pos = qpos + Vector2.One * monVocab.rect.Height * 2.0f;
+        monVocab.pos = qpos + Vector2.One * monVocab.rect.Height * 2.7f;
         monVocab.target = null;
 
         Monster? monExample = null;
@@ -3401,7 +3529,7 @@ public class HuntingGame : View
         }
         var target = playing.target;
 
-        //await ReadyGameScript(ctrl);
+        await ReadyGameScript(ctrl);
 
         await StartVocabScript(ctrl);
 
@@ -3622,7 +3750,7 @@ public class HuntingGame : View
         var fontAsian = state.fontAsian;
         var fontEng = state.fontMedium;
         var center = state.center - new Vector2(0, (fontAsian.GetHeight() + fontEng.GetHeight()) / 2);
-        var countdown = 4;
+        var countdown = 3;
 
         scriptFn.DrawComponent = () =>
         {
@@ -3824,7 +3952,7 @@ public class HuntingGame : View
             }
         }
 
-        {
+        /*{
             var font = SharedState.self.fontMedium;
             var pos = new Vector2(Graphics.GetWidth() / 2, font.GetHeight() / 2);
             var card = playing.card;
@@ -3839,6 +3967,7 @@ public class HuntingGame : View
             Graphics.SetFont(font);
             Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth() / 2 - 20, AlignMode.Right);
         }
+        */
     }
 
     public void DrawClear()
@@ -3867,8 +3996,8 @@ public class HuntingGame : View
             clear.gpr.font = SharedState.self.fontAsian;
             clear.gpr.Printf(card.GetField("SentFurigana") ?? "", maxWidth);
             clear.gpr.font = SharedState.self.fontSmall;
-            clear.gpr.Print(" ");
             clear.gpr.font = SharedState.self.fontMedium;
+            clear.gpr.Print(" ");
             clear.gpr.Printf(card.GetField("SentEng") ?? "", maxWidth);
         }
 
@@ -4977,8 +5106,8 @@ public class StartScreen : View
         input.sensitivity = 0.8f;
 
         //gameMenu.selectedColor = Color.Blue;
-        gameMenu.DisableItem(2);
-        gameMenu.DisableItem(1);
+        //gameMenu.DisableItem(2);
+        //gameMenu.DisableItem(1);
 
         scripter = new Scripter(Script);
         scripter.Start();
@@ -5072,6 +5201,7 @@ public class StartScreen : View
 
             if (!string.IsNullOrEmpty(selectedDeck))
             {
+                _ = cardLoader.CountLearnedNewCardsToday(selectedDeck);
                 await cardLoader.LoadCards(selectedDeck);
             }
             return selectedDeck;
@@ -5149,7 +5279,7 @@ public class StartScreen : View
         {
             OnStart();
         }
-        if (choice == "exit")
+        else if (choice == "exit")
         {
             Love.Event.Quit();
         }
@@ -5297,6 +5427,7 @@ public class CardLoader
 
     public List<CardInfo> NewCards { get; set; } = new();
     public List<CardInfo> DueCards { get; set; } = new();
+    public int LearnedNewCards { get; set; } = 0;
 
     public bool IsLoadingDecks { get; set; }
     public bool IsLoadingCards { get; set; }
@@ -5347,6 +5478,8 @@ public class CardLoader
             );
             var newCards = resp[0].Unwrap();
             var dueCards = resp[1].Unwrap();
+            //Console.WriteLine("new cards: {0}", newCards.Length);
+            Console.WriteLine("due cards: {0}", dueCards.Length);
 
             foreach (var card in newCards)
             {
@@ -5363,25 +5496,34 @@ public class CardLoader
         loadCardsTask = null;
         return result;
     }
+    public async Task<int> CountLearnedNewCardsToday(string deckName)
+    {
+        var count = (await AnkiConnect.CountLearnedNewCardsToday(deckName)).Unwrap();
+        LearnedNewCards = count;
+        Console.WriteLine("learned new cards {0}", count);
+        return count;
+    }
 
     public async Task WriteSaveState(SavedState save)
     {
-        var contents = JsonSerializer.Serialize(save);
-        await System.IO.File.WriteAllTextAsync(Config.savedStateFilename, contents);
+        // disabled because "Select deck is not implemented"
+        //var contents = JsonSerializer.Serialize(save);
+        //await System.IO.File.WriteAllTextAsync(Config.savedStateFilename, contents);
     }
 
     public async Task<SavedState> RestoreSavedState()
     {
-        try
-        {
-            var contents = await System.IO.File.ReadAllTextAsync(Config.savedStateFilename);
-            var savedState = JsonSerializer.Deserialize<SavedState>(contents);
-            return savedState ?? new SavedState();
-        }
-        catch (JsonException) { }
-        catch (System.IO.FileNotFoundException) { }
+        // disabled because "Select deck is not implemented"
+        //try
+        //{
+        //    var contents = await System.IO.File.ReadAllTextAsync(Config.savedStateFilename);
+        //    var savedState = JsonSerializer.Deserialize<SavedState>(contents);
+        //    return savedState ?? new SavedState();
+        //}
+        //catch (JsonException) { }
+        //catch (System.IO.FileNotFoundException) { }
 
-        return new SavedState();
+        return new SavedState { lastDeckName = "AJT Kanji Transition TSC" };
     }
 }
 

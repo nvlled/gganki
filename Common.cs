@@ -21,6 +21,8 @@ public interface IPos
 
 public class Config
 {
+    public const int newCardsPerDay = 20;
+
     public const int fontSize = 50;
     public const int fontSizeTiny = 14;
     public const int fontSizeSmall = 18;
@@ -627,8 +629,13 @@ public class AudioManager
     // LoadAudio("35cb9c96cc03ad5ed6e8cf7b38a62b85.ogg")
     // - check cache file
     // - fetch from anki server if none
-    public static async Task<Love.Source> LoadAudio(string ankiFile)
+    public static async Task<Love.Source?> LoadAudio(string ankiFile)
     {
+        if (string.IsNullOrEmpty(ankiFile))
+        {
+            return null;
+        }
+
         var audio = GetCacheAudio(ankiFile);
         if (audio != null)
         {
