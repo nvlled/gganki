@@ -1,7 +1,7 @@
 # gganki
 
-
-[![Now in Android: 55](https://i.ytimg.com/vi/sNwjHgGjodQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=sNwjHgGjodQ "demo") 
+[![Now in Android: 55](https://i.ytimg.com/vi/sNwjHgGjodQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=sNwjHgGjodQ "demo")
+(Click to watch demo on youtube)
 
 # About
 
@@ -38,7 +38,7 @@ Discontinued and no longer maintained. There are several reasons for this:
 
 To be clear, only this particular project is discontinued. I think
 the idea is interesting and has potential. I'm actually thinking
-and planning creating a rewrite with [godot](https://godotengine.org/)
+and planning of creating a rewrite with [godot](https://godotengine.org/)
 and without the anki dependency.
 
 ### Dependencies
@@ -49,12 +49,12 @@ and without the anki dependency.
 
 ## How to run
 
-1. First installed dependencies (see above)
-2. Make sure anki is running, and the anki-connect addon is installed.
-3. Add AJT deck to anki. It's possible the latest version doesn't work anymore.
-   In that case, you can use this [deck](assets/ajt-deck.apkg).
-   Note: the deck must have exactly the name "AJT Kanji Transition TSC"
-   Otherwise, it won't work.
+1. Install anki and addon (see above)
+2. Make sure anki is running, and the anki-connect addon is enabled.
+3. Add AJT deck to anki. It's possible the latest version is no longer compatible.
+   In that case, you can use this archived [deck](assets/ajt-deck.apkg).
+   Note: the deck must have exactly the name "AJT Kanji Transition TSC",
+   otherwise, it won't work.
 4. Download gganki from [here](https://github.com/nvlled/gganki/releases)
 5. Run gganki
 
@@ -64,12 +64,12 @@ can try building from source instead (see Development section).
 
 ## Controls
 
-WASD keys: movement
-Space: dash
-Mouse move: aim
-Mouse left-click: short-range attack
-Mouse right-click: long-range attack
-Mouse double right-click: mid-range attack
+- **WASD keys**: movement
+- **spacebar**: dash
+- **mouse movement**: aim
+- **left-click**: short-range attack
+- **right-click**: long-range attack
+- **double right-click**: mid-range attack
 
 ## Development
 
@@ -79,12 +79,6 @@ code like this in a more professional, collaboratve setting,
 so it would be great it if I wasn't judged based on this
 project. That all said, here's how to build from source:
 
-1. install [dotnet](https://dotnet.microsoft.com/en-us/download)
+1. Install [dotnet](https://dotnet.microsoft.com/en-us/download)
 2. `$ git clone https://github.com/nvlled/gganki`
 3. `$ cd gganki; dotnet run`
-
-## TODO:
-
-- add ajt deck on repo
-- change commit names
-- video is not showing on readme
