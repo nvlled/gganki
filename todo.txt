@@ -1,0 +1,248 @@
+// TODO: show cards learned/reviewed while playing
+// TODO: show message when there is no card available
+
+// TODO: use ebisu spacing algorithm
+// so yeah, I'm dropping anki dependency in the end
+// or at least, for the AJT kanji transition deck
+// it'll make the game easier to package and 
+// let other people try it out
+// ebisu algo does seem simpler compared to
+// to supermemo derived algos,
+// and would probably work better for my use case
+// but
+// I've already spent a little too long
+// on this project
+// my interest in continuing has admittedly died bit
+// It wasn't entirely a useless endeavor,
+// I learned lots of things,
+// particularly the do's and don'ts when making a game.
+// At least for the next game project,
+// I would have better idea how to structure larger games.
+// I should probably write them down sooner.
+// On the positive side, I guess I did somehow manage
+// to achieve my goal. That is, a more efficient
+// means of learning from flashcards.
+// The cards I had difficulty learning before,
+// now learn them easier or faster. And I learn
+// the difficult cards easier as well.
+// So yeah, at least the concept has potential.
+// Anyway, for now, I will freeze the project
+// from any feature/visual changes, and ocassionally
+// do some tiny bug fixes and some minor tweaking
+// on the game parameters.
+// It's good enough for now.
+// While in testing phase, I'm going to
+// do other projects now. Hooray!??11
+// Yeah, working on one project for a long time
+// isn't very fun.
+// I'm considering what to do next,
+// but more importantly, I should start finding
+// work. The stress of running out of money
+// is starting to take a toll on me.
+// Unfortunately, I still need to make
+// some new one or two tiny projects
+// when applying.
+// So the plan then would be to create
+// simple projects in different tech stacks.
+// I'm thinking of using tauri, monogame,
+// and ebiten.
+// By simple, I mean something that can be done 
+// in a day or two, and does one thing well.
+// Also, I was considering of creating a
+// lua-based static site generator,
+// but I should focus on making
+// a more presentable personal site/resume instead. 
+// I'd be a lot more chill if my mother wasn't
+// occasionally gaslighting me and asking
+// me where's the money.
+// But yeah, fuck it, how is it my sole
+// responsibility. I have 5 more other siblings
+// to share my burden.
+// At worst case, I end up going outside
+// and start looking for local work,
+// and that doesn't seem so bad.
+
+
+// TODO: add time elapsed when submitting answer to anki
+
+// TODO: add some walking monsters on start screen
+
+// TODO: in-game menu
+
+// TODO: example boss
+//       shoots stuffs
+//       - other monsters walks outside of grid
+//       - focus camera on big guy and play text
+//       - pick up sword with the matching text
+//       - show kanji damage effect per hit
+
+// TODO: general codebase clean up
+//       fix all warnings
+
+// TODO: clean up interface, create release build
+//       move game outside script file
+
+// TODO: start actual day-to-day testing
+
+// TODO: add basic floors walls, decorations (random biomes)
+//       canvas layers (floor, walls, entities, interface)
+
+
+// TODO: turn-based mode: monster only move when the player moves
+// TODO: skirmish
+
+// TODO: refactoring
+//       decouple events 
+
+// TODO: handle failed HTTP requests
+
+// TODO: visual improvements
+//       shaders, particles, camera movements
+//       - particles.Add(tileIDs)
+//       - litters.Add(bloodIDs)
+
+// TODO: random dungeon generation
+
+// TODO: add other game types
+//       - search for pieces in maze
+
+// So... making this into a general purpose
+// anki interface would take more work, which
+// involves making sure that the platform
+// is supported, as well as the anki
+// and the plugins are compatible with each user. 
+// So the plan would be just to release
+// it as a demo with some pre-installed
+// decks installed.
+// I'll add some contact info and
+// future plans in the game, and
+// see if there are any interest for this kind of stuffs.
+// If none, well, it works well as a portfolio
+// addition.
+// While play testing and waiting for feedback,
+// I should move on to next projects.
+// I've been thinking of porting the voxel editor
+// to monogame. Monogame does have (basic?) 3D support.
+// More importantly, I should start doing
+// smaller, more focused projects with well-defined
+// scopes and does one thing well.
+// It's either for utility or amusement.
+// Then I start applying for work.
+
+// TODO: in-game zoom in/out
+// set camera on question
+// pan to player 
+// await camera.panTo()
+// await camera.zoomIn()
+// await camera.zoomOut()
+
+
+// TODO: show centered big kanji at game start
+// TODO: try the coroutine for monster re-merging effect
+// add Component{Update,Draw} on entities
+
+// TODO: group non-kanji as one in examples
+
+// TODO:
+// At start, show example, highlight vocab
+// choices are monsters semi-moving
+// with translation text above their heads
+// wrong answer transitions to playing,
+// correct answer, choice to train or to go to next card
+
+
+
+// TODO: game scenes/stages
+// - monster target hunting
+//   - hunt N monsters, .e.g. hunt 5 草
+//   - split monster to several monsters by each SentKanji character on death
+//   - alternate between VocabKanji and SentKanji
+//   - show target kanji and count on UI
+//   - on successful hunt, end current level
+//     - show card details
+
+// actually, what about SentEng?
+// where or when should it be shown?
+// Some example sentences are quite long though.
+// Huh, even the SentKanji can get too long
+
+// Example kanji: 大学生
+// 1. game start, show large kanji at midscreen (no audio)
+// 2. move to playing state
+//    show the kanji at bottom and add a counter (0/5)
+// 3. At 1st kill, if kanji.length > 1
+//    split kanji into several monsters, fleeing
+//    each monster should take one hit
+//    but monsters can only be killed in order
+//    大 first, then 学, then last 生
+//    highlight which should be targeted next at the bottom
+// 4. After hunting sub-monster, the sub-monsters will merge back again
+//    into one, change audio to SentKanji, but keep VocabText above monster
+// 5. At 2nd kill, split monsters again, but with SentKanji
+//    姉は大学生です。 Same process as (3)
+//    Show SentEng somewhere, maybe at the top?
+//    Oh too much visual noise already?
+// 6. End level, show time taken and card details
+
+// implementation notes:
+// enum HuntState { Vocab, VocabParts, Example, ExampleParts}
+// targetMonsters = []
+// targetIndex = 0
+// if targetMonsters[targetIndex].IsDead() { next() }
+// - non-target monsters take less damage
+
+
+// see Lemonia game for design ideas
+// - particularly the simple effects and bobbing motion
+
+
+// - monster  (re)spawning
+// - pickables (sword, health, bomb)
+
+// TODO: skirmish mode (no targets, just survive)
+
+// TODO: random terrain
+// TODO: add a silly bobbing walking motion
+
+// TODO: cast spells 
+// TODO: add one more weapon (change with B button)
+// TODO: add more fun attack variations
+
+// TODO: snake-like formation of monsters
+// TODO: implement other monster logic states
+
+// TODO: Canvas layers (background, floor, entities, roof,  interface)
+// TODO: sort one partition per frame (add flag to skip if not modified)
+// TODO: implement a proper component-entity system
+
+
+// TODO: add SFX and BGM?
+// It's a good chance to create a full working game
+// so I might as well add it
+// I don't think I can go another month or two
+// without a job
+// so I can probably use this project
+// when applying
+// I don't know how would that work though
+// "Hey, I made a shitty game, please hire me"
+// like that
+
+// TODO: remove xFFmpeg.NET dependency
+//       and create separate tool for extracting/converting the audio
+
+// TODO: remove anki dependecy
+//       and create separate tool for extracting the card data
+// but that means I have to implement my own spacing algorithm
+// this is probably not easy to do
+// besides, being able use anki 
+// as the interface for managing the deck
+// saves me time from reimplementing a bunch of features
+// what if create to separate projects
+// one standalone game, and one anki game UI 
+
+
+// TODO: Make a proper Card type
+// Change VocabKanji -> Vocab 
+// Change SentKanji  -> Example 
+// ... etcetera
+

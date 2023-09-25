@@ -70,8 +70,6 @@ public class Script : View
             state.deckNames = deckTask.Result;
             if (selectedDeck != null && cardTask != null)
             {
-
-                //state.deckCards[selectedDeck] = cardLoader.DueCards.ToArray();
                 var count = Config.newCardsPerDay - cardLoader.LearnedNewCards;
                 var newCards = count < 0 ? new CardInfo[0] : cardLoader.NewCards.ToArray()[0..count];
                 PrintVar("new cards in deck {0}", newCards.Count());
@@ -309,10 +307,10 @@ public class WeaponEntity
             RotateAt(dir);
             SetHandlePosition(oldPos);
         }
-        else if (logicState == State.Throwing)
-        {
-            //RotateAt(dir);
-        }
+        //else if (logicState == State.Throwing)
+        //{
+        //    RotateAt(dir);
+        //}
     }
 
     public void Thrust()
@@ -391,11 +389,6 @@ public class WeaponEntity
             case 5: Spin(); break;
         }
 
-        //switch (logicState)
-        //{
-        //	case State.OnHand: Throw(); break;
-        //	case State.Throwing: HaltThrow(); break;
-        //}
     }
 
     public void DoAction2()
@@ -444,9 +437,6 @@ public class WeaponEntity
         logicState = State.Whirlwind;
         whirlwind.scale = entity.scale;
         whirlwind.charging = false;
-        //whirlwind.steps = t * 10;
-        //whirlwind.radius = 0;
-        //whirlwind.maxRadius = t;
         whirlwind.steps = MathF.Max(whirlwind.minSteps, whirlwind.steps);
         whirlwind.color = new Color(255, 255, 255, 255);
         whirlwind.colorStep = 1;
@@ -527,14 +517,6 @@ public class WeaponEntity
         }
 
         entity.Draw();
-
-
-        //var start = GetHandlePos();
-        //var end = start + GetRotatedDir() * this.tileDir.Length();
-        //var end = GetEndPos();
-        //var r = GetRotatedRay();
-        //Graphics.SetColor(Color.Red);
-        //Graphics.Line(r.Original, r.Original + r.Direction);
     }
 
     public bool UpdateThrusting()
@@ -580,7 +562,6 @@ public class WeaponEntity
         SetHandlePosition(oldPos);
         UpdateOnHand();
 
-        //logicState = State.OnHand;
         return true;
     }
 
@@ -737,8 +718,6 @@ public class GAxis
 
     static GAxis()
     {
-        //left = new GAxis(GAxisSide.Left) { noDraw = true };
-        //right = new GAxis(GAxisSide.Right) { noDraw = true };
         left = new GAxis(GAxisSide.Left, 50) { pos = new Vector2(100, Graphics.GetHeight() - 100) };
         right = new GAxis(GAxisSide.Right, 50) { pos = new Vector2(Graphics.GetWidth() - 100, Graphics.GetHeight() - 100) };
 
@@ -855,8 +834,6 @@ public class GAxis
         }
         passiveDir.Normalize();
 
-        /*
-		*/
         var dir = Polar.GetAngle(passiveDir) - Polar.GetAngle(prevPassiveDir);
         if (MathF.Abs(dir) > MathF.PI / 2 && MathF.Abs(dir) < MathF.PI)
         {
@@ -902,8 +879,6 @@ public class GAxis
             return;
         }
 
-        //Graphics.SetColor(Color.White);
-        //Graphics.Circle(DrawMode.Line, pos, radius);
         Graphics.SetColor(Color.DarkRed);
         Graphics.Circle(DrawMode.Fill, pos, radius);
 
@@ -950,96 +925,6 @@ public class EntityUtil
         );
     }
 }
-
-/*
-public class Plotter
-{
-	Entity entity;
-	Vector2 point1;
-	Vector2 point2;
-	Vector2 point3;
-	public bool enabled = true;
-
-	SharedState state;
-	float angle = 0;
-
-	public Plotter(Entity entity, SharedState state)
-	{
-		this.entity = entity;
-		this.state = state;
-
-		//this.entity.radianAngle = 0.50f;
-
-		var p = state.player;
-		p.pos = state.center;
-
-		var topRight = EntityUtil.GetAbsolutePosition(state.player, new Vector2(0, 1));
-		point3 = EntityUtil.RotateByPoint(state.center, topRight, -0.30f);
-	}
-
-	public void Update()
-	{
-		if (!enabled)
-		{
-			return;
-		}
-
-		var p = state.player;
-		var topRight = EntityUtil.GetAbsolutePosition(state.player, new Vector2(1.0f, 0.0f));
-		point3 = EntityUtil.RotateByPoint(state.center, state.center + new Vector2(p.rect.Width / 2, -p.rect.Height / 2), angle);
-		state.player.pos = point3;
-		state.player.radianAngle = angle;
-		//angle += 0.01005f;
-
-
-
-		if (Mouse.IsDown(0) && entity.rect.Contains(Mouse.GetPosition()))
-		{
-			point1 = Mouse.GetPosition();
-			point2 = EntityUtil.RotateByPoint(point1, entity.rect.Center, entity.radianAngle);
-
-		}
-	}
-
-	public void Draw()
-	{
-		if (!enabled)
-		{
-			return;
-		}
-
-		var center = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
-		Graphics.SetColor(Color.White);
-		Graphics.Circle(DrawMode.Fill, center, 10);
-
-		Graphics.SetColor(Color.Red);
-		Graphics.Circle(DrawMode.Fill, point1, 10);
-
-		Graphics.SetColor(Color.Blue);
-		Graphics.Circle(DrawMode.Fill, point2, 7);
-
-		Graphics.SetColor(Color.Orange);
-		Graphics.Circle(DrawMode.Fill, point3, 12);
-
-		Graphics.SetColor(Color.White);
-		Graphics.Rectangle(DrawMode.Line, entity.rect);
-
-		var r = entity.rect;
-		Graphics.Push();
-		Graphics.SetColor(Color.Yellow);
-		Graphics.Translate(entity.rect.Center);
-		Graphics.Rotate(entity.radianAngle);
-		Graphics.Line(
-			new Vector2(r.Left, r.Top) - r.Center,
-			new Vector2(r.Right, r.Top) - r.Center,
-			new Vector2(r.Right, r.Bottom) - r.Center,
-			new Vector2(r.Left, r.Bottom) - r.Center,
-			new Vector2(r.Left, r.Top) - r.Center
-		);
-		Graphics.Pop();
-	}
-}
-*/
 
 
 public enum CardTextType
@@ -1334,15 +1219,6 @@ public class MonsterGroup
         }
     }
 }
-
-/*
-class Monster;
-
-void Update() {
-	logicState.Update();
-}
-
-*/
 
 public interface IMonsterState
 {
@@ -1846,8 +1722,6 @@ public class Monster : IPos
 
     public void Dispose()
     {
-        //textObject.Clear();
-        //textObject.Dispose();
     }
 
     public bool IsAlive()
@@ -2042,10 +1916,6 @@ public class Player
                      : Color.White;
         entity.Draw();
         sword.Draw();
-
-        //Graphics.Rectangle(DrawMode.Line, rect);
-        //Graphics.Circle(DrawMode.Line, entity.pos, 10);
-
     }
 
     public void DrawInterface()
@@ -2155,7 +2025,6 @@ public class Camera
 
     public void EndDraw()
     {
-        //Graphics.Rectangle(DrawMode.Line, innerRect);
         Graphics.Pop();
 
         //Graphics.SetFont(font);
@@ -2332,16 +2201,13 @@ public class FX
     {
 
         var scanlines = new Moonshine.Scanlines();
-        //scanlines.Opacity = 0.5f;
-        //scanlines.Width = 0.8f;
         scanlines.Thickness = 0.2f;
 
         godsray.Density = 0.2f;
         screenEffects = Moonshine.China(godsray)
-            //.Next(Moonshine.CRT.Default)
-            //.Next(Moonshine.Glow.Default)
-            //.Next(scanlines)
-            ;
+           .Next(Moonshine.CRT.Default)
+           //.Next(Moonshine.Glow.Default)
+           .Next(scanlines);
         godsray.Enable = false;
 
         swordEffect = Moonshine.China(swordRay);
@@ -2496,9 +2362,6 @@ public class HuntingGame : View
             subIndex++;
         }
 
-        //public GameWithCoroutines game;
-
-        //public Playing(GameWithCoroutines game) { this.game = game; }
 
     }
 
@@ -2607,26 +2470,6 @@ public class HuntingGame : View
         StartGame();
     }
 
-    /*
-	private void GamepadPressed(Joystick arg1, GamepadButton arg2)
-	{
-		HandleGameoverInput();
-	}
-
-	private void KeyPressed(KeyConstant key, Scancode scancode, bool isRepeat)
-	{
-		HandleGameoverInput();
-	}
-
-	public void HandleGameoverInput()
-	{
-		if (gameState == State.Gameover && gameover.opacity >= 1)
-		{
-			monsterGroup.Dispose();
-			StartGame();
-		}
-	}
-	*/
 
     public void RemoveUnwantedTags(CardInfo card, string field)
     {
@@ -3087,8 +2930,6 @@ public class HuntingGame : View
             if (message != "")
             {
                 var pos = SharedState.self.centerBottom - Vector2.UnitY * 100;
-                //Graphics.SetColor(bgColor);
-                //Xt.Graphics.PrintlnRect(DrawMode.Fill, message, SharedState.self.fontRegular);
                 Graphics.SetColor(messageColor);
                 Xt.Graphics.PrintPos = pos;
                 Xt.Graphics.Println(message, SharedState.self.fontMedium);
@@ -3118,9 +2959,8 @@ public class HuntingGame : View
                 }
                 else
                 {
-                    message = $"Find matching letters ({numLetters})";
+                    message = $"Pickup matching letters ({numLetters})";
                 }
-                //player.AddHealth(food.healthGain);
             }
         };
 
@@ -3177,143 +3017,6 @@ public class HuntingGame : View
         numLetters = numVocab * vocabParts.Length;
         message = $"Find matching letters ({numLetters})";
 
-        // TODO: show cards learned/reviewed while playing
-        // TODO: show message when there is no card available
-
-        // TODO: use ebisu spacing algorithm
-        // so yeah, I'm dropping anki dependency in the end
-        // or at least, for the AJT kanji transition deck
-        // it'll make the game easier to package and 
-        // let other people try it out
-        // ebisu algo does seem simpler compared to
-        // to supermemo derived algos,
-        // and would probably work better for my use case
-        // but
-        // I've already spent a little too long
-        // on this project
-        // my interest in continuing has admittedly died bit
-        // It wasn't entirely a useless endeavor,
-        // I learned lots of things,
-        // particularly the do's and don'ts when making a game.
-        // At least for the next game project,
-        // I would have better idea how to structure larger games.
-        // I should probably write them down sooner.
-        // On the positive side, I guess I did somehow manage
-        // to achieve my goal. That is, a more efficient
-        // means of learning from flashcards.
-        // The cards I had difficulty learning before,
-        // now learn them easier or faster. And I learn
-        // the difficult cards easier as well.
-        // So yeah, at least the concept has potential.
-        // Anyway, for now, I will freeze the project
-        // from any feature/visual changes, and ocassionally
-        // do some tiny bug fixes and some minor tweaking
-        // on the game parameters.
-        // It's good enough for now.
-        // While in testing phase, I'm going to
-        // do other projects now. Hooray!??11
-        // Yeah, working on one project for a long time
-        // isn't very fun.
-        // I'm considering what to do next,
-        // but more importantly, I should start finding
-        // work. The stress of running out of money
-        // is starting to take a toll on me.
-        // Unfortunately, I still need to make
-        // some new one or two tiny projects
-        // when applying.
-        // So the plan then would be to create
-        // simple projects in different tech stacks.
-        // I'm thinking of using tauri, monogame,
-        // and ebiten.
-        // By simple, I mean something that can be done 
-        // in a day or two, and does one thing well.
-        // Also, I was considering of creating a
-        // lua-based static site generator,
-        // but I should focus on making
-        // a more presentable personal site/resume instead. 
-        // I'd be a lot more chill if my mother wasn't
-        // occasionally gaslighting me and asking
-        // me where's the money.
-        // But yeah, fuck it, how is it my sole
-        // responsibility. I have 5 more other siblings
-        // to share my burden.
-        // At worst case, I end up going outside
-        // and start looking for local work,
-        // and that doesn't seem so bad.
-
-
-        // TODO: add time elapsed when submitting answer to anki
-
-        // TODO: add some walking monsters on start screen
-
-        // TODO: in-game menu
-
-        // TODO: example boss
-        //       shoots stuffs
-        //       - other monsters walks outside of grid
-        //       - focus camera on big guy and play text
-        //       - pick up sword with the matching text
-        //       - show kanji damage effect per hit
-
-        // TODO: general codebase clean up
-        //       fix all warnings
-
-        // TODO: clean up interface, create release build
-        //       move game outside script file
-
-        // TODO: start actual day-to-day testing
-
-        // TODO: add basic floors walls, decorations (random biomes)
-        //       canvas layers (floor, walls, entities, interface)
-
-
-        // TODO: turn-based mode: monster only move when the player moves
-        // TODO: skirmish
-
-        // TODO: refactoring
-        //       decouple events 
-
-        // TODO: handle failed HTTP requests
-
-        // TODO: visual improvements
-        //       shaders, particles, camera movements
-        //       - particles.Add(tileIDs)
-        //       - litters.Add(bloodIDs)
-
-        // TODO: random dungeon generation
-
-        // TODO: add other game types
-        //       - search for pieces in maze
-
-        // So... making this into a general purpose
-        // anki interface would take more work, which
-        // involves making sure that the platform
-        // is supported, as well as the anki
-        // and the plugins are compatible with each user. 
-        // So the plan would be just to release
-        // it as a demo with some pre-installed
-        // decks installed.
-        // I'll add some contact info and
-        // future plans in the game, and
-        // see if there are any interest for this kind of stuffs.
-        // If none, well, it works well as a portfolio
-        // addition.
-        // While play testing and waiting for feedback,
-        // I should move on to next projects.
-        // I've been thinking of porting the voxel editor
-        // to monogame. Monogame does have (basic?) 3D support.
-        // More importantly, I should start doing
-        // smaller, more focused projects with well-defined
-        // scopes and does one thing well.
-        // It's either for utility or amusement.
-        // Then I start applying for work.
-
-        // TODO: in-game zoom in/out
-        // set camera on question
-        // pan to player 
-        // await camera.panTo()
-        // await camera.zoomIn()
-        // await camera.zoomOut()
 
         player.pos = vocab.pos - Vector2.UnitX * player.rect.Width * 2;
         prevPos = player.pos;
@@ -3952,22 +3655,6 @@ public class HuntingGame : View
             }
         }
 
-        /*{
-            var font = SharedState.self.fontMedium;
-            var pos = new Vector2(Graphics.GetWidth() / 2, font.GetHeight() / 2);
-            var card = playing.card;
-            var s = playing.state;
-            var text = s == HuntState.VocabParts || (playing.hunts >= 2 && s == HuntState.Vocab)
-                ? card?.GetField("VocabDef")
-                : s == HuntState.VocabParts
-                ? card?.GetField("SentEng")
-                : "";
-
-            Graphics.SetColor(Color.White);
-            Graphics.SetFont(font);
-            Graphics.Printf(text, pos.X, pos.Y, Graphics.GetWidth() / 2 - 20, AlignMode.Right);
-        }
-        */
     }
 
     public void DrawClear()
@@ -4328,116 +4015,6 @@ public class HuntingGame : View
 
 
 
-// TODO: show centered big kanji at game start
-// TODO: try the coroutine for monster re-merging effect
-// add Component{Update,Draw} on entities
-
-// TODO: group non-kanji as one in examples
-
-// TODO:
-// At start, show example, highlight vocab
-// choices are monsters semi-moving
-// with translation text above their heads
-// wrong answer transitions to playing,
-// correct answer, choice to train or to go to next card
-
-
-
-// TODO: game scenes/stages
-// - monster target hunting
-//   - hunt N monsters, .e.g. hunt 5 草
-//   - split monster to several monsters by each SentKanji character on death
-//   - alternate between VocabKanji and SentKanji
-//   - show target kanji and count on UI
-//   - on successful hunt, end current level
-//     - show card details
-
-// actually, what about SentEng?
-// where or when should it be shown?
-// Some example sentences are quite long though.
-// Huh, even the SentKanji can get too long
-
-// Example kanji: 大学生
-// 1. game start, show large kanji at midscreen (no audio)
-// 2. move to playing state
-//    show the kanji at bottom and add a counter (0/5)
-// 3. At 1st kill, if kanji.length > 1
-//    split kanji into several monsters, fleeing
-//    each monster should take one hit
-//    but monsters can only be killed in order
-//    大 first, then 学, then last 生
-//    highlight which should be targeted next at the bottom
-// 4. After hunting sub-monster, the sub-monsters will merge back again
-//    into one, change audio to SentKanji, but keep VocabText above monster
-// 5. At 2nd kill, split monsters again, but with SentKanji
-//    姉は大学生です。 Same process as (3)
-//    Show SentEng somewhere, maybe at the top?
-//    Oh too much visual noise already?
-// 6. End level, show time taken and card details
-
-// implementation notes:
-// enum HuntState { Vocab, VocabParts, Example, ExampleParts}
-// targetMonsters = []
-// targetIndex = 0
-// if targetMonsters[targetIndex].IsDead() { next() }
-// - non-target monsters take less damage
-
-
-// see Lemonia game for design ideas
-// - particularly the simple effects and bobbing motion
-
-
-// - monster  (re)spawning
-// - pickables (sword, health, bomb)
-
-// TODO: skirmish mode (no targets, just survive)
-
-// TODO: random terrain
-// TODO: add a silly bobbing walking motion
-
-// TODO: cast spells 
-// TODO: add one more weapon (change with B button)
-// TODO: add more fun attack variations
-
-// TODO: snake-like formation of monsters
-// TODO: implement other monster logic states
-
-// TODO: Canvas layers (background, floor, entities, roof,  interface)
-// TODO: sort one partition per frame (add flag to skip if not modified)
-// TODO: implement a proper component-entity system
-
-
-// TODO: add SFX and BGM?
-// It's a good chance to create a full working game
-// so I might as well add it
-// I don't think I can go another month or two
-// without a job
-// so I can probably use this project
-// when applying
-// I don't know how would that work though
-// "Hey, I made a shitty game, please hire me"
-// like that
-
-// TODO: remove xFFmpeg.NET dependency
-//       and create separate tool for extracting/converting the audio
-
-// TODO: remove anki dependecy
-//       and create separate tool for extracting the card data
-// but that means I have to implement my own spacing algorithm
-// this is probably not easy to do
-// besides, being able use anki 
-// as the interface for managing the deck
-// saves me time from reimplementing a bunch of features
-// what if create to separate projects
-// one standalone game, and one anki game UI 
-
-
-// TODO: Make a proper Card type
-// Change VocabKanji -> Vocab 
-// Change SentKanji  -> Example 
-// ... etcetera
-
-
 
 
 public class TextProgress
@@ -4672,8 +4249,6 @@ public class TextEntity
     {
         this.maxWidth = maxWidth;
         this.font = font;
-        //font = Graphics.NewFont(fontSize);
-        //text = font.GetWrap()
 
         UpdateText(text);
         UpdateRect();
@@ -5105,10 +4680,6 @@ public class StartScreen : View
 
         input.sensitivity = 0.8f;
 
-        //gameMenu.selectedColor = Color.Blue;
-        //gameMenu.DisableItem(2);
-        //gameMenu.DisableItem(1);
-
         scripter = new Scripter(Script);
         scripter.Start();
 
@@ -5506,14 +5077,14 @@ public class CardLoader
 
     public async Task WriteSaveState(SavedState save)
     {
-        // disabled because "Select deck is not implemented"
+        // TODO: disabled because "Select deck is not implemented"
         //var contents = JsonSerializer.Serialize(save);
         //await System.IO.File.WriteAllTextAsync(Config.savedStateFilename, contents);
     }
 
     public async Task<SavedState> RestoreSavedState()
     {
-        // disabled because "Select deck is not implemented"
+        // TODO: disabled because "Select deck is not implemented"
         //try
         //{
         //    var contents = await System.IO.File.ReadAllTextAsync(Config.savedStateFilename);
@@ -5575,7 +5146,5 @@ public class LoadingIcon
         Graphics.Rectangle(DrawMode.Line, -radius / 2, -radius / 2, radius, radius);
         Graphics.Pop();
 
-        //Graphics.SetFont(SharedState.self.fontSmall);
-        //Graphics.Print("Loading", pos.X - radius, pos.Y);
     }
 }

@@ -58,93 +58,13 @@ public class Program : Scene
         //state.fontRegular.SetLineHeight(20.0f);
     }
 
-    /*
-        public void OnLoadDone(DeckNames deckNames)
-        {
-            Console.WriteLine("loading next view");
-
-            state.deckNames = deckNames;
-            //state.cards = cards;
-
-            var deckSelect = new DeckSelectView(state);
-            deckSelect.OnSelect += OnSelectDeck;
-            state.SetActiveView(deckSelect);
-        }
-
-        public async void OnSelectDeck(string deckName, ulong id)
-        {
-            GameView gameView;
-            Console.WriteLine("opening: " + deckName);
-            if (state.deckCards.ContainsKey(deckName))
-            {
-                gameView = new GameView(deckName, state);
-                state.SetActiveView(gameView);
-
-                if (debugEnabled)
-                {
-                    scriptLoader.EnableDebug();
-                }
-                else
-                {
-                    scriptLoader.StartLoad();
-                }
-
-
-                return;
-            }
-
-            var cardTask = AnkiConnect.FetchAvailableCards(deckName);
-            var loader = new LoaderView(state);
-
-            state.SetActiveView(loader);
-            await Task.WhenAll(
-                //loader.AwaitTask("delay", Task.Delay(2000)),
-                loader.AddTask("deck cards", cardTask)
-            );
-
-            var cards = cardTask.Result.value;
-            state.deckCards[deckName] = cards;
-
-            Console.WriteLine("saving deck name " + deckName);
-            gameView = new GameView(deckName, state);
-            state.SetActiveView(gameView);
-
-            WriteSaveState(new SavedState { lastDeckName = deckName });
-
-            //var gameView = new GameView(state);
-            //state.SetActiveView(gameView);
-        }
-
-        public void WriteSaveState(SavedState save)
-        {
-            var contents = JsonSerializer.Serialize(save);
-            System.IO.File.WriteAllText(Config.savedStateFilename, contents);
-        }
-
-        public SavedState RestoreSavedState()
-        {
-            try
-            {
-                var contents = System.IO.File.ReadAllText(Config.savedStateFilename);
-                var savedState = JsonSerializer.Deserialize<SavedState>(contents);
-                return savedState ?? new SavedState();
-            }
-            catch (JsonException) { }
-            catch (System.IO.FileNotFoundException) { }
-
-            return new SavedState();
-        }
-        */
 
     public override async void Load()
     {
+        Window.SetFullscreen(true);
 
         Mouse.SetRelativeMode(true);
-        //Mouse.SetGrabbed(true);
         Mouse.SetVisible(false);
-        //var filename = "78de88070e17b513462f962a8a481c6d.ogg";
-        //var source = await AudioManager.LoadAudio(filename);
-        //source.Play();
 
         Graphics.SetFont(state.fontAsian);
 
@@ -154,10 +74,6 @@ public class Program : Scene
         state.windowEntity.rect = new RectangleF(0, 0, Graphics.GetWidth(), Graphics.GetHeight());
         state.windowEntity.pos = new Vector2(Graphics.GetWidth() / 2, Graphics.GetHeight() / 2);
 
-
-        //var gameView = new GameView(deckName, state);
-        //state.SetActiveView(gameView);
-
         if (debugEnabled)
         {
             scriptLoader.EnableDebug();
@@ -166,43 +82,8 @@ public class Program : Scene
         {
             scriptLoader.StartLoad();
         }
-        /*
-
-        var loader = new LoaderView(state);
-        var tasks = new List<Task>();
-        var deckName = state.lastDeckName ?? "";
-
-        //loader.OnLoad += OnFetch;
-        state.SetActiveView(loader);
-
-        Task<AnkiConnectResponse<CardInfo[]>>? cardTask = null;
-        if (!string.IsNullOrEmpty(deckName))
-        {
-            cardTask = AnkiConnect.FetchAvailableCards(deckName);
-            tasks.Add(loader.AddTask("card", cardTask));
-        }
-
-        var deckTask = AnkiConnect.FetchDecks();
-        tasks.Add(loader.AddTask("decks", deckTask));
-
-        await Task.WhenAll(tasks);
-
-        state.deckCards[deckName] = cardTask?.Result?.value;
-        state.deckNames = deckTask?.Result?.value ?? state.deckNames;
-
-
-        if (!string.IsNullOrEmpty(deckName) && state.deckCards.ContainsKey(deckName))
-        {
-            var id = state.deckNames[deckName];
-            OnSelectDeck(deckName, id);
-        }
-        else
-        {
-            OnLoadDone(state.deckNames);
-        }
-        */
-
     }
+
     public override void MouseMoved(float x, float y, float dx, float dy, bool isTouch)
     {
         base.MouseMoved(x, y, dx, dy, isTouch);
@@ -325,7 +206,6 @@ public class Program : Scene
         Graphics.SetFont(state.fontSmall);
         Graphics.Print(Love.Timer.GetFPS().ToString(), 20, Graphics.GetHeight() - Graphics.GetFont().GetHeight() * 1.2f);
 
-        //Lua.Draw();
         Callbacks.PostDraw();
     }
 }
