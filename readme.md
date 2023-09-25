@@ -1,6 +1,7 @@
 # gganki
 
-<video src='demo.mkv' ></video>
+
+[![Now in Android: 55](https://i.ytimg.com/vi/sNwjHgGjodQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=sNwjHgGjodQ "demo") 
 
 # About
 
