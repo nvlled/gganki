@@ -1,19 +1,19 @@
 # gganki
 
-![demo](demo.mkv)
+<video src='demo.mkv' ></video>
 
 # About
 
 This project is a game interface for [anki](https://apps.ankiweb.net/).
 The goal of this project is to lessen the tedium of reviewing cards by means of
-monter-hunting game.
+a monter-hunting game.
 
 ## Project status
 
 Discontinued and no longer maintained. There are several reasons for this:
 
 1. The game I've made isn't exactly that much fun to play. It was interesting
-   for the few hours, but it quickly got stale and interesting, which defeats
+   for the few hours, but it quickly got stale and boring, which defeats
    the whole point of the game interface for anki.
 
 2. Having anki dependency (including the addon) multiplies the complexity
@@ -37,8 +37,8 @@ Discontinued and no longer maintained. There are several reasons for this:
 
 To be clear, only this particular project is discontinued. I think
 the idea is interesting and has potential. I'm actually thinking
-and planning creating a rewrite with [godot]() and without anki
-dependency.
+and planning creating a rewrite with [godot](https://godotengine.org/)
+and without the anki dependency.
 
 ### Dependencies
 
@@ -49,16 +49,17 @@ dependency.
 ## How to run
 
 1. First installed dependencies (see above)
-2. Make sure anki is running, all addon and deck is installed
-3. Download gganki from [here](https://github.com/nvlled/gganki/releases)
-4. Run gganki
+2. Make sure anki is running, and the anki-connect addon is installed.
+3. Add AJT deck to anki. It's possible the latest version doesn't work anymore.
+   In that case, you can use this [deck](assets/ajt-deck.apkg).
+   Note: the deck must have exactly the name "AJT Kanji Transition TSC"
+   Otherwise, it won't work.
+4. Download gganki from [here](https://github.com/nvlled/gganki/releases)
+5. Run gganki
 
 Since this is an unfinished and discontinued project, you would most likely
 be unable to run gganki without a ton of errors. If that's the case, you
-can try building from source:
-
-1. `$ git clone https://github.com/nvlled/gganki`
-2. `$ cd gganki; dotnet run`
+can try building from source instead (see Development section).
 
 ## Controls
 
@@ -68,3 +69,21 @@ Mouse move: aim
 Mouse left-click: short-range attack
 Mouse right-click: long-range attack
 Mouse double right-click: mid-range attack
+
+## Development
+
+The codebase is in a messy state, typical hacky gamedev/startup code.
+Much of the code is dumped on Script.cs. I wouldn't normally
+code like this in a more professional, collaboratve setting,
+so it would be great it if I wasn't judged based on this
+project. That all said, here's how to build from source:
+
+1. install [dotnet](https://dotnet.microsoft.com/en-us/download)
+2. `$ git clone https://github.com/nvlled/gganki`
+3. `$ cd gganki; dotnet run`
+
+## TODO:
+
+- add ajt deck on repo
+- change commit names
+- video is not showing on readme

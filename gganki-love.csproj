@@ -24,5 +24,4 @@
       <IncludeAssets>runtime; build; native; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
-
 </Project>
