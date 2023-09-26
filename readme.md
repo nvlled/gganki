@@ -1,6 +1,6 @@
 # gganki
 
-[![Now in Android: 55](https://i.ytimg.com/vi/sNwjHgGjodQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=sNwjHgGjodQ "demo")
+[![demo](https://i.ytimg.com/vi/sNwjHgGjodQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=sNwjHgGjodQ "demo")
 (Click to watch demo on youtube)
 
 # About
